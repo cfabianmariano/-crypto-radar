@@ -7,22 +7,62 @@ async function getJSON(url) {
   return response.json()
 }
 
-async function fetchBtcKlines() {
-  const rows = await getJSON(`${BINANCE}/klines?symbol=BTCUSDT&interval=1d&limit=1000`)
-  return rows.slice(-730).map((x) => ({
+function mapKline(x) {
+  return {
     timestamp: Number(x[0]),
-    date: new Date(Number(x[0])).toLocaleDateString('es-US', { month: 'short', day: 'numeric', year: '2-digit' }),
-    price: Number(x[4]),
+    date: new Date(Number(x[0])).toLocaleDateString('es-US', {
+      month: 'short', day: 'numeric', year: '2-digit',
+    }),
     open: Number(x[1]),
     high: Number(x[2]),
     low: Number(x[3]),
+    close: Number(x[4]),
+    price: Number(x[4]),
     volume: Number(x[5]),
-  }))
+  }
+}
+
+export async function fetchBtcCandles({ interval = '1d', startTime, endTime, maxCandles = 6000 } = {}) {
+  const end = endTime ?? Date.now()
+  const start = startTime ?? (end - 730 * 24 * 60 * 60 * 1000)
+  const result = []
+  let cursor = start
+
+  while (cursor < end && result.length < maxCandles) {
+    const params = new URLSearchParams({
+      symbol: 'BTCUSDT',
+      interval,
+      limit: '1000',
+      startTime: String(cursor),
+      endTime: String(end),
+    })
+    const rows = await getJSON(`${BINANCE}/klines?${params}`)
+    if (!rows?.length) break
+
+    for (const row of rows) {
+      if (result.length >= maxCandles) break
+      result.push(mapKline(row))
+    }
+
+    const lastOpenTime = Number(rows[rows.length - 1][0])
+    if (!Number.isFinite(lastOpenTime) || lastOpenTime <= cursor) break
+    cursor = lastOpenTime + 1
+    if (rows.length < 1000) break
+  }
+
+  return result
+}
+
+async function fetchBtcDailyModelHistory() {
+  const end = Date.now()
+  const start = end - 760 * 24 * 60 * 60 * 1000
+  const rows = await fetchBtcCandles({ interval: '1d', startTime: start, endTime: end, maxCandles: 760 })
+  return rows.slice(-730)
 }
 
 export async function fetchCoinSnapshot(id) {
   if (id === 'bitcoin') {
-    const h = await fetchBtcKlines()
+    const h = await fetchBtcDailyModelHistory()
     const current = h[h.length - 1]
     const prev = h[h.length - 2]
     const p7 = h[h.length - 8]?.price ?? current.price
@@ -53,7 +93,7 @@ export async function fetchCoinSnapshot(id) {
 }
 
 export async function fetchCoinHistory(id, days = 365) {
-  if (id === 'bitcoin') return fetchBtcKlines()
+  if (id === 'bitcoin') return fetchBtcDailyModelHistory()
 
   const params = new URLSearchParams({ vs_currency: 'usd', days: String(days), interval: 'daily' })
   const data = await getJSON(`${COINGECKO}/coins/${id}/market_chart?${params}`)
