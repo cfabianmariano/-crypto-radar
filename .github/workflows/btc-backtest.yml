@@ -1,0 +1,179 @@
+name: BTC Backtest Experiment
+
+on:
+  push:
+    branches: [btc-backtest-experiment]
+  workflow_dispatch:
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run BTC 2-year signal backtest
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, math, statistics, urllib.request
+          from datetime import datetime, timezone
+
+          URL = 'https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000'
+          req = urllib.request.Request(URL, headers={'User-Agent':'crypto-radar-backtest/1.0'})
+          with urllib.request.urlopen(req, timeout=30) as r:
+              raw = json.load(r)
+
+          rows = []
+          for x in raw[-730:]:
+              rows.append({
+                  'ts': int(x[0]),
+                  'date': datetime.fromtimestamp(int(x[0])/1000, tz=timezone.utc).strftime('%Y-%m-%d'),
+                  'open': float(x[1]), 'high': float(x[2]), 'low': float(x[3]),
+                  'close': float(x[4]), 'volume': float(x[5])
+              })
+
+          def clamp(x, lo=-1.0, hi=1.0):
+              return max(lo, min(hi, x))
+
+          def ema(vals, period):
+              out=[None]*len(vals)
+              a=2/(period+1)
+              s=None
+              for i,v in enumerate(vals):
+                  if s is None: s=v
+                  else: s=a*v+(1-a)*s
+                  out[i]=s
+              return out
+
+          def sma(vals, period):
+              out=[None]*len(vals); total=0.0
+              for i,v in enumerate(vals):
+                  total += v
+                  if i>=period: total -= vals[i-period]
+                  if i>=period-1: out[i]=total/period
+              return out
+
+          def rsi(vals, period=14):
+              out=[None]*len(vals)
+              gains=[]; losses=[]
+              for i in range(1,len(vals)):
+                  d=vals[i]-vals[i-1]
+                  gains.append(max(d,0)); losses.append(max(-d,0))
+                  if i>=period:
+                      g=sum(gains[i-period:i])/period
+                      l=sum(losses[i-period:i])/period
+                      out[i]=100 if l==0 else 100-(100/(1+g/l))
+              return out
+
+          closes=[r['close'] for r in rows]
+          vols=[r['volume'] for r in rows]
+          ma50=sma(closes,50); ma200=sma(closes,200)
+          e12=ema(closes,12); e26=ema(closes,26)
+          macd=[a-b for a,b in zip(e12,e26)]
+          sig=ema(macd,9)
+          hist=[a-b for a,b in zip(macd,sig)]
+          rs=rsi(closes,14)
+
+          # ATR(14) as market-regime/risk context, not a directional vote.
+          trs=[]
+          for i,r in enumerate(rows):
+              if i==0: tr=r['high']-r['low']
+              else: tr=max(r['high']-r['low'], abs(r['high']-closes[i-1]), abs(r['low']-closes[i-1]))
+              trs.append(tr)
+          atr=sma(trs,14)
+
+          scores=[None]*len(rows)
+          for i,r in enumerate(rows):
+              if i<200 or rs[i] is None: continue
+              p=closes[i]
+              ret20=p/closes[i-20]-1 if i>=20 else 0
+              ret60=p/closes[i-60]-1 if i>=60 else 0
+              trend200=clamp((p/ma200[i]-1)/0.15)
+              trendCross=clamp((ma50[i]/ma200[i]-1)/0.08)
+              mom20=clamp(ret20/0.15)
+              mom60=clamp(ret60/0.30)
+              rsi_vote=clamp((rs[i]-50)/20)
+              macd_vote=clamp(hist[i]/(p*0.01))
+              if i>=20:
+                  vwin=vols[i-20:i]
+                  vm=statistics.mean(vwin); vs=statistics.pstdev(vwin) or 1
+                  vz=(vols[i]-vm)/vs
+              else: vz=0
+              volume_vote=clamp(vz/2) * (1 if ret20>=0 else -1)
+              score=(25*trend200 + 15*trendCross + 15*mom20 + 15*mom60 + 15*rsi_vote + 10*macd_vote + 5*volume_vote)
+              scores[i]=round(score,1)
+
+          BUY=35; SELL=-35; COOLDOWN=7
+          signals=[]; last_idx=-999; last_side=None
+          for i,s in enumerate(scores):
+              if s is None: continue
+              side='BUY' if s>=BUY else ('SELL' if s<=SELL else None)
+              if not side: continue
+              # Only count distinct signal events: threshold entry, side flip, or after cooldown.
+              prev=scores[i-1] if i>0 else None
+              crossed=(side=='BUY' and (prev is None or prev<BUY)) or (side=='SELL' and (prev is None or prev>SELL))
+              if side!=last_side or crossed or i-last_idx>=COOLDOWN:
+                  signals.append({'i':i,'date':rows[i]['date'],'price':closes[i],'side':side,'score':s,'rsi':rs[i],
+                                  'vs200':p/ma200[i]-1 if ma200[i] else None})
+                  last_idx=i; last_side=side
+
+          horizons={7:0.015,30:0.03,90:0.05}
+          print('=== BTC SIGNAL ENGINE — 2 YEAR BACKTEST ===')
+          print(f"Data window: {rows[0]['date']} to {rows[-1]['date']} ({len(rows)} daily candles)")
+          print('Source: Binance public market-data endpoint, BTCUSDT spot, daily close')
+          print('Distinct-signal rule: score >= +35 BUY, <= -35 SELL; 7-day de-duplication/cooldown')
+          print(f'Distinct signals generated: {len(signals)}')
+          print()
+
+          for h,meaningful in horizons.items():
+              usable=[]
+              for s in signals:
+                  j=s['i']+h
+                  if j>=len(rows): continue
+                  rawret=closes[j]/s['price']-1
+                  signed=rawret if s['side']=='BUY' else -rawret
+                  usable.append((s,signed,rawret))
+              if not usable:
+                  continue
+              dirwins=sum(1 for _,signed,_ in usable if signed>0)
+              meaningfulwins=sum(1 for _,signed,_ in usable if signed>meaningful)
+              avg=statistics.mean(x[1] for x in usable)
+              med=statistics.median(x[1] for x in usable)
+              buy=[x for x in usable if x[0]['side']=='BUY']
+              sell=[x for x in usable if x[0]['side']=='SELL']
+              buywins=sum(1 for x in buy if x[1]>0)
+              sellwins=sum(1 for x in sell if x[1]>0)
+              # Baseline: unconditional BTC chance of positive h-day return in same eligible period.
+              baseline=[]
+              for i in range(200,len(rows)-h): baseline.append(closes[i+h]/closes[i]-1)
+              basepos=sum(1 for x in baseline if x>0)/len(baseline)
+              print(f'--- Horizon {h} days ---')
+              print(f'N signals evaluable: {len(usable)}')
+              print(f'Directional hit rate: {dirwins/len(usable)*100:.1f}%')
+              print(f'Meaningful-move hit rate (>{meaningful*100:.1f}% in signal direction): {meaningfulwins/len(usable)*100:.1f}%')
+              print(f'Average signed forward return: {avg*100:+.2f}%')
+              print(f'Median signed forward return: {med*100:+.2f}%')
+              print(f'BUY hit rate: {(buywins/len(buy)*100 if buy else float("nan")):.1f}% on {len(buy)} signals')
+              print(f'SELL hit rate: {(sellwins/len(sell)*100 if sell else float("nan")):.1f}% on {len(sell)} signals')
+              print(f'Always-long baseline positive-rate: {basepos*100:.1f}%')
+              print()
+
+          # Current model state using latest available completed/current daily candle.
+          i=len(rows)-1; s=scores[i]
+          side='BUY' if s is not None and s>=BUY else ('SELL' if s is not None and s<=SELL else 'NEUTRAL')
+          print('=== LATEST MODEL STATE ===')
+          print(f"Date: {rows[i]['date']} | Close: ${closes[i]:,.2f} | Score: {s} | Signal: {side} | RSI14: {rs[i]:.1f}")
+          if ma200[i]: print(f'Price vs MA200: {(closes[i]/ma200[i]-1)*100:+.1f}%')
+          if atr[i]: print(f'ATR14 / price: {atr[i]/closes[i]*100:.1f}%')
+          print()
+
+          print('=== LAST 12 DISTINCT SIGNALS ===')
+          for s in signals[-12:]:
+              outs=[]
+              for h in (7,30,90):
+                  j=s['i']+h
+                  if j<len(rows):
+                      rr=closes[j]/s['price']-1
+                      signed=rr if s['side']=='BUY' else -rr
+                      outs.append(f'{h}d {signed*100:+.1f}%')
+                  else: outs.append(f'{h}d pending')
+              print(f"{s['date']} {s['side']:4} score={s['score']:>5} price=${s['price']:,.0f} | " + ' | '.join(outs))
+          PY
