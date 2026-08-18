@@ -1,0 +1,214 @@
+name: BTC High Conviction Model
+
+on:
+  push:
+    branches: [btc-backtest-experiment]
+    paths: [high-conviction-trigger.txt]
+  workflow_dispatch:
+
+jobs:
+  model:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Search robust high-conviction rules
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, urllib.parse, statistics, itertools, math
+          from datetime import datetime, timezone
+
+          def get(url):
+            req=urllib.request.Request(url,headers={'User-Agent':'crypto-radar-research/1.0','Accept':'application/json'})
+            with urllib.request.urlopen(req,timeout=40) as r: return json.load(r)
+
+          # 730 daily BTCUSDT candles
+          raw=get('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000')[-730:]
+          rows=[{'ts':int(x[0]),'date':datetime.fromtimestamp(int(x[0])/1000,tz=timezone.utc).strftime('%Y-%m-%d'),
+                 'open':float(x[1]),'high':float(x[2]),'low':float(x[3]),'close':float(x[4]),'volume':float(x[5])} for x in raw]
+          c=[x['close'] for x in rows]; v=[x['volume'] for x in rows]
+
+          def sma(a,n,i): return None if i<n-1 else sum(a[i-n+1:i+1])/n
+          def sd(a,n,i): return None if i<n-1 else statistics.pstdev(a[i-n+1:i+1])
+          def rsi(i,n=14):
+            if i<n:return None
+            ds=[c[j]-c[j-1] for j in range(i-n+1,i+1)]
+            g=sum(max(x,0) for x in ds)/n; l=sum(max(-x,0) for x in ds)/n
+            return 100 if l==0 else 100-100/(1+g/l)
+          def atrp(i,n=14):
+            if i<n:return None
+            tr=[]
+            for j in range(i-n+1,i+1):
+              pc=c[j-1]; tr.append(max(rows[j]['high']-rows[j]['low'],abs(rows[j]['high']-pc),abs(rows[j]['low']-pc)))
+            return sum(tr)/n/c[i]
+          def volz(i,n=20):
+            if i<n:return 0
+            z=v[i-n:i]; s=statistics.pstdev(z) or 1
+            return (v[i]-statistics.mean(z))/s
+          def dd(i,n=30): return c[i]/max(c[i-n+1:i+1])-1 if i>=n-1 else 0
+          def closepos(i):
+            rg=rows[i]['high']-rows[i]['low']; return .5 if rg==0 else (c[i]-rows[i]['low'])/rg
+
+          # Binance funding history, paginate backwards across ~2 years.
+          funding_by_day={}
+          try:
+            start=rows[0]['ts']; end=rows[-1]['ts']+86400000
+            cursor=start
+            while cursor<end:
+              url='https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=%d&endTime=%d&limit=1000'%(cursor,end)
+              data=get(url)
+              if not data: break
+              for x in data:
+                day=datetime.fromtimestamp(int(x['fundingTime'])/1000,tz=timezone.utc).strftime('%Y-%m-%d')
+                funding_by_day.setdefault(day,[]).append(float(x['fundingRate']))
+              nxt=int(data[-1]['fundingTime'])+1
+              if nxt<=cursor: break
+              cursor=nxt
+              if len(data)<1000: break
+          except Exception as e:
+            print('funding unavailable',e)
+          fund={d:statistics.mean(xs) for d,xs in funding_by_day.items()}
+
+          # Coin Metrics community MVRV where available.
+          mvrv={}
+          try:
+            start=rows[0]['date']; end=rows[-1]['date']
+            url=f'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=CapMVRVCur&frequency=1d&start_time={start}&end_time={end}&page_size=10000'
+            data=get(url).get('data',[])
+            for x in data:
+              if x.get('CapMVRVCur') is not None: mvrv[x['time'][:10]]=float(x['CapMVRVCur'])
+          except Exception as e:
+            print('mvrv unavailable',e)
+
+          funding_series=[]; mvrv_series=[]
+          lastf=0; lastm=None
+          for r in rows:
+            lastf=fund.get(r['date'],lastf); funding_series.append(lastf)
+            if r['date'] in mvrv:lastm=mvrv[r['date']]
+            mvrv_series.append(lastm)
+
+          def mean_slice(a,i,n):
+            vals=[x for x in a[max(0,i-n+1):i+1] if x is not None]
+            return statistics.mean(vals) if vals else None
+          def zscore_last(a,i,n):
+            vals=[x for x in a[max(0,i-n):i] if x is not None]
+            x=a[i]
+            if x is None or len(vals)<5:return 0
+            s=statistics.pstdev(vals) or 1
+            return (x-statistics.mean(vals))/s
+
+          feats=[]
+          for i in range(len(rows)):
+            if i<200: feats.append(None); continue
+            m20=sma(c,20,i); m50=sma(c,50,i); m200=sma(c,200,i); s20=sd(c,20,i)
+            f={
+              'ret3':c[i]/c[i-3]-1,'ret7':c[i]/c[i-7]-1,'ret14':c[i]/c[i-14]-1,'ret30':c[i]/c[i-30]-1,
+              'rsi':rsi(i),'vs20':c[i]/m20-1,'vs50':c[i]/m50-1,'vs200':c[i]/m200-1,
+              'atr':atrp(i),'volz':volz(i),'bb':4*s20/m20 if m20 else 0,'dd30':dd(i,30),'closepos':closepos(i),
+              'fund7':mean_slice(funding_series,i,7) or 0,'fundz':zscore_last(funding_series,i,60),
+              'mvrv':mvrv_series[i],
+              'mvrv30': (mvrv_series[i]/mvrv_series[i-30]-1) if i>=30 and mvrv_series[i] and mvrv_series[i-30] else None,
+            }
+            feats.append(f)
+
+          # Interpretable atomic conditions. We search PAIRS/TRIPLES only.
+          atoms={
+            'r7<-5%':lambda f:f['ret7']<-.05,'r7<-8%':lambda f:f['ret7']<-.08,
+            'r7>5%':lambda f:f['ret7']>.05,'r7>8%':lambda f:f['ret7']>.08,
+            'r30<-8%':lambda f:f['ret30']<-.08,'r30<-15%':lambda f:f['ret30']<-.15,
+            'r30>8%':lambda f:f['ret30']>.08,'r30>15%':lambda f:f['ret30']>.15,
+            'RSI<35':lambda f:f['rsi']<35,'RSI<42':lambda f:f['rsi']<42,'RSI>60':lambda f:f['rsi']>60,'RSI>68':lambda f:f['rsi']>68,
+            'belowMA200>5%':lambda f:f['vs200']<-.05,'belowMA200>12%':lambda f:f['vs200']<-.12,
+            'aboveMA200>5%':lambda f:f['vs200']>.05,'aboveMA200>12%':lambda f:f['vs200']>.12,
+            'belowMA50>4%':lambda f:f['vs50']<-.04,'aboveMA50>4%':lambda f:f['vs50']>.04,
+            'volZ>0.7':lambda f:f['volz']>.7,'volZ<0':lambda f:f['volz']<0,
+            'ATR>3.5%':lambda f:f['atr']>.035,'ATR<3%':lambda f:f['atr']<.03,
+            'closeBottom35%':lambda f:f['closepos']<.35,'closeTop65%':lambda f:f['closepos']>.65,
+            'DD30<-10%':lambda f:f['dd30']<-.10,'DD30<-15%':lambda f:f['dd30']<-.15,
+            'fund7<0':lambda f:f['fund7']<0,'fund7>0.01%':lambda f:f['fund7']>.0001,
+            'fundZ<-0.7':lambda f:f['fundz']<-.7,'fundZ>0.7':lambda f:f['fundz']>.7,
+          }
+          if any(x is not None for x in mvrv_series):
+            atoms.update({
+              'MVRV<1.6':lambda f:f['mvrv'] is not None and f['mvrv']<1.6,
+              'MVRV<2.0':lambda f:f['mvrv'] is not None and f['mvrv']<2.0,
+              'MVRV>2.2':lambda f:f['mvrv'] is not None and f['mvrv']>2.2,
+              'MVRV30fall':lambda f:f['mvrv30'] is not None and f['mvrv30']<-.08,
+              'MVRV30rise':lambda f:f['mvrv30'] is not None and f['mvrv30']>.08,
+            })
+
+          H=30; START=200; END=len(rows)-H
+          split=START+int((END-START)*.58)
+
+          def eval_rule(names, side, lo,hi):
+            idx=[]; last=-99
+            for i in range(lo,hi):
+              f=feats[i]
+              if f and all(atoms[n](f) for n in names) and i-last>=7:
+                idx.append(i); last=i
+            if not idx:return None
+            rets=[c[i+H]/c[i]-1 for i in idx]
+            signed=[x if side=='BUY' else -x for x in rets]
+            return {'n':len(idx),'hit':sum(x>0 for x in signed)/len(signed),'big':sum(x>.05 for x in signed)/len(signed),
+                    'avg':statistics.mean(signed),'med':statistics.median(signed),'idx':idx}
+
+          candidates=[]; names=list(atoms)
+          for k in (2,3):
+            for combo in itertools.combinations(names,k):
+              trb=eval_rule(combo,'BUY',START,split); trs=eval_rule(combo,'SELL',START,split)
+              for side,tr in [('BUY',trb),('SELL',trs)]:
+                if not tr or tr['n']<7 or tr['hit']<.65: continue
+                te=eval_rule(combo,side,split,END)
+                if not te or te['n']<5: continue
+                # conservative ranking: test hit, then sample, then avg return
+                score=te['hit']*100 + min(te['n'],15)*1.2 + max(-5,min(10,te['avg']*100))
+                candidates.append((score,side,combo,tr,te))
+          candidates.sort(reverse=True,key=lambda x:x[0])
+
+          lines=[]
+          lines.append('BTC HIGH-CONVICTION MODEL — 2 YEAR RESEARCH')
+          lines.append(f"Window {rows[0]['date']}..{rows[-1]['date']} | target horizon={H}d | train through {rows[split-1]['date']} | unseen test from {rows[split]['date']}")
+          lines.append(f"Funding coverage days={len(fund)} | MVRV coverage days={sum(x is not None for x in mvrv_series)}")
+          lines.append('Rules searched: interpretable 2- and 3-condition combinations; 7d signal cooldown; minimum train N=7, unseen-test N=5.')
+          lines.append('')
+          for rank,x in enumerate(candidates[:12],1):
+            score,side,combo,tr,te=x
+            lines.append(f"#{rank} {side} | {' + '.join(combo)}")
+            lines.append(f"  TRAIN N={tr['n']} hit={tr['hit']*100:.1f}% big5={tr['big']*100:.1f}% avg={tr['avg']*100:+.2f}%")
+            lines.append(f"  TEST  N={te['n']} hit={te['hit']*100:.1f}% big5={te['big']*100:.1f}% avg={te['avg']*100:+.2f}% med={te['med']*100:+.2f}%")
+          lines.append('')
+
+          # Choose best BUY and SELL requiring test >=70 if possible.
+          chosen={}
+          for side in ('BUY','SELL'):
+            opts=[x for x in candidates if x[1]==side]
+            if opts: chosen[side]=opts[0]
+          lines.append('CHOSEN')
+          for side,x in chosen.items():
+            _,_,combo,tr,te=x
+            lines.append(f"{side}: {' + '.join(combo)} | unseen hit={te['hit']*100:.1f}% N={te['n']} avg={te['avg']*100:+.2f}%")
+
+          # Current status against chosen rules.
+          i=len(rows)-1; f=feats[i]
+          active=[]
+          for side,x in chosen.items():
+            combo=x[2]
+            if all(atoms[n](f) for n in combo): active.append(side)
+          if len(active)==1: action=active[0]
+          else: action='WAIT'
+          lines.append('')
+          lines.append(f"CURRENT {rows[i]['date']} close=${c[i]:,.2f} action={action} RSI={f['rsi']:.1f} r7={f['ret7']*100:+.1f}% r30={f['ret30']*100:+.1f}% vsMA200={f['vs200']*100:+.1f}% fund7={f['fund7']*100:+.4f}% MVRV={f['mvrv'] if f['mvrv'] is not None else 'NA'}")
+
+          open('btc_high_conviction_result.txt','w').write('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+      - name: Store result
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add btc_high_conviction_result.txt
+          git diff --cached --quiet || git commit -m 'Store BTC high-conviction result [skip ci]'
+          git push
