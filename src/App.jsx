@@ -22,7 +22,6 @@ const fmtPrice = (n) => {
   if (n >= 1) return `$${n.toLocaleString('en-US', { maximumFractionDigits: 3 })}`
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 6 })}`
 }
-const pctNum = (n) => n == null ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
 const toInputDate = (date) => date.toISOString().slice(0, 10)
 
 function RingStat({ label, value, cases, tone = 'buy' }) {
@@ -37,7 +36,18 @@ function RingStat({ label, value, cases, tone = 'buy' }) {
   )
 }
 
-function CandleChart({ data, signals = [] }) {
+function mapStudyToCandles(source, series, candles) {
+  if (!source.length || !candles.length) return candles.map(() => null)
+  const out = []
+  let j = 0
+  for (const candle of candles) {
+    while (j + 1 < source.length && source[j + 1].timestamp <= candle.timestamp) j += 1
+    out.push(series[j] ?? null)
+  }
+  return out
+}
+
+function CandleChart({ data, signals = [], trendSource = [] }) {
   const wrapRef = useRef(null)
   const dragRef = useRef(null)
   const touchRef = useRef(null)
@@ -59,9 +69,22 @@ function CandleChart({ data, signals = [] }) {
   }, [expanded])
 
   const studies = useMemo(() => {
-    const closes = data.map((d) => d.close)
-    return { sma50: rollingSma(closes, 50), sma200: rollingSma(closes, 200) }
-  }, [data])
+    // Para rangos cortos (por defecto 30 días), usamos el historial diario de 2 años
+    // como warm-up para que SMA50/SMA200 sigan visibles desde la primera vela.
+    const ownCloses = data.map((d) => d.close ?? d.price)
+    if (data.length >= 200) {
+      return { sma50: rollingSma(ownCloses, 50), sma200: rollingSma(ownCloses, 200) }
+    }
+
+    const source = trendSource.length ? trendSource : data
+    const sourceCloses = source.map((d) => d.close ?? d.price)
+    const source50 = rollingSma(sourceCloses, 50)
+    const source200 = rollingSma(sourceCloses, 200)
+    return {
+      sma50: mapStudyToCandles(source, source50, data),
+      sma200: mapStudyToCandles(source, source200, data),
+    }
+  }, [data, trendSource])
 
   const visibleData = useMemo(() => {
     if (!data.length) return []
@@ -279,8 +302,8 @@ function CandleChart({ data, signals = [] }) {
           <line x1={g.left} x2={g.W - g.right} y1={g.volumeTop} y2={g.volumeTop} stroke="#1d2a3c" strokeWidth="1" />
 
           {showTrend && <>
-            <path d={linePath(visibleSma50)} fill="none" stroke="#f59e0b" strokeWidth="2" opacity=".9" />
-            <path d={linePath(visibleSma200)} fill="none" stroke="#38bdf8" strokeWidth="2.2" opacity=".95" />
+            <path d={linePath(visibleSma50)} fill="none" stroke="#f59e0b" strokeWidth="2.2" opacity=".95" />
+            <path d={linePath(visibleSma200)} fill="none" stroke="#38bdf8" strokeWidth="2.4" opacity=".98" />
           </>}
 
           {signalPoints.map((s, idx) => {
@@ -318,7 +341,7 @@ function CandleChart({ data, signals = [] }) {
 
 function App() {
   const today = new Date()
-  const twoYearsAgo = new Date(today.getTime() - 730 * DAY)
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * DAY)
 
   const [coinId, setCoinId] = useState(COINS[0].id)
   const [snapshot, setSnapshot] = useState(null)
@@ -329,7 +352,7 @@ function App() {
   const [error, setError] = useState('')
   const [chartError, setChartError] = useState('')
   const [lastUpdated, setLastUpdated] = useState(null)
-  const [chartFrom, setChartFrom] = useState(toInputDate(twoYearsAgo))
+  const [chartFrom, setChartFrom] = useState(toInputDate(thirtyDaysAgo))
   const [chartTo, setChartTo] = useState(toInputDate(today))
   const [candleInterval, setCandleInterval] = useState('1d')
   const requestId = useRef(0)
@@ -462,11 +485,11 @@ function App() {
 
             {chartError && <div className="chartError">{chartError}</div>}
             <div className="chartWrap candleWrap">
-              {coinId === 'bitcoin' ? <CandleChart data={chartHistory} signals={btcSignalsForChart} /> : (
+              {coinId === 'bitcoin' ? <CandleChart data={chartHistory} signals={btcSignalsForChart} trendSource={history} /> : (
                 <ResponsiveContainer width="100%" height="100%"><AreaChart data={lineChartData} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}><CartesianGrid stroke="#1d2a3c" vertical={false} /><XAxis dataKey="date" tick={{ fill: '#7f8da3', fontSize: 11 }} minTickGap={65} axisLine={false} tickLine={false}/><YAxis domain={['auto', 'auto']} tickFormatter={(v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v.toFixed(2)}`} tick={{ fill: '#7f8da3', fontSize: 11 }} axisLine={false} tickLine={false} width={60}/><Tooltip contentStyle={{ background: '#0c1727', border: '1px solid #26374f', borderRadius: 12 }} labelStyle={{ color: '#a8b5c8' }} formatter={(v, name) => [fmtPrice(v), name === 'price' ? 'Precio' : name.toUpperCase()]}/><Area type="monotone" dataKey="price" stroke="#38bdf8" strokeWidth={2.3} fillOpacity={.12} fill="#38bdf8" dot={false}/><Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 5" dot={false}/><Line type="monotone" dataKey="ma200" stroke="#22c55e" strokeWidth={1.6} strokeDasharray="7 6" dot={false}/></AreaChart></ResponsiveContainer>
               )}
             </div>
-            {coinId === 'bitcoin' && <div className="chartFoot simpleFoot">B = Comprar · S = Vender</div>}
+            {coinId === 'bitcoin' && <div className="chartFoot simpleFoot">B = Comprar · S = Vender · Tendencia = SMA50/SMA200</div>}
           </section>
 
           <section className="scoreGrid restoredScores">
@@ -491,7 +514,7 @@ function App() {
       )}
 
       {!indicators && !error && <div className="loadingState">Construyendo radar de {coin.symbol}…</div>}
-      <footer>BTC V0.7 · señal, efectividad, tendencia, volumen y gráfico interactivo.</footer>
+      <footer>BTC V0.8 · señal, efectividad, tendencia, volumen y gráfico interactivo.</footer>
     </main>
   )
 }
