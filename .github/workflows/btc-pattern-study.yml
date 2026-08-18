@@ -11,11 +11,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: btc-backtest-experiment
+          fetch-depth: 0
       - name: Analyze pre-move patterns
         shell: bash
         run: |
           python3 - <<'PY'
-          import json, math, statistics, urllib.request, subprocess
+          import json, statistics, urllib.request
           from datetime import datetime, timezone
 
           URL='https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000'
@@ -25,18 +29,15 @@ jobs:
           rows=[]
           for x in raw:
             rows.append({'date':datetime.fromtimestamp(int(x[0])/1000,tz=timezone.utc).strftime('%Y-%m-%d'),'open':float(x[1]),'high':float(x[2]),'low':float(x[3]),'close':float(x[4]),'volume':float(x[5])})
-
           c=[r['close'] for r in rows]; v=[r['volume'] for r in rows]
+
           def sma(a,n,i): return None if i<n-1 else sum(a[i-n+1:i+1])/n
-          def std(a,n,i):
-            if i<n-1:return None
-            s=a[i-n+1:i+1]; return statistics.pstdev(s)
+          def stdev(a,n,i): return None if i<n-1 else statistics.pstdev(a[i-n+1:i+1])
           def rsi(i,n=14):
             if i<n:return None
             g=l=0
             for j in range(i-n+1,i+1):
-              d=c[j]-c[j-1]
-              g+=max(d,0); l+=max(-d,0)
+              d=c[j]-c[j-1]; g+=max(d,0); l+=max(-d,0)
             return 100 if l==0 else 100-100/(1+(g/n)/(l/n))
           def atr(i,n=14):
             if i<n:return None
@@ -45,111 +46,73 @@ jobs:
               prev=c[j-1]
               tr.append(max(rows[j]['high']-rows[j]['low'],abs(rows[j]['high']-prev),abs(rows[j]['low']-prev)))
             return sum(tr)/n
-          def zvol(i,n=20):
-            if i<n:return None
+          def volz(i,n=20):
             s=v[i-n:i]; sd=statistics.pstdev(s) or 1
             return (v[i]-statistics.mean(s))/sd
-          def maxdd_pre(i,n=20):
-            s=c[i-n+1:i+1]; peak=s[0]; mdd=0
-            for x in s:
-              peak=max(peak,x); mdd=min(mdd,x/peak-1)
-            return mdd
-          def runup_pre(i,n=20):
-            s=c[i-n+1:i+1]; lo=min(s); return c[i]/lo-1
-          def features(i):
-            m20=sma(c,20,i); m50=sma(c,50,i); m200=sma(c,200,i)
-            sd20=std(c,20,i)
-            rets=[c[j]/c[j-1]-1 for j in range(i-9,i+1)] if i>=10 else []
-            updays=sum(1 for x in rets if x>0)
-            return {
-              'ret3':c[i]/c[i-3]-1,'ret7':c[i]/c[i-7]-1,'ret14':c[i]/c[i-14]-1,'ret30':c[i]/c[i-30]-1,
-              'rsi':rsi(i),'vs20':c[i]/m20-1,'vs50':c[i]/m50-1,'vs200':c[i]/m200-1,
-              'atrp':atr(i)/c[i],'volz':zvol(i),'bbwidth':(4*sd20/m20) if m20 and sd20 is not None else None,
-              'updays10':updays,'mdd20':maxdd_pre(i,20),'runup20':runup_pre(i,20),
+          def mdd(i,n=20):
+            s=c[i-n+1:i+1]; peak=s[0]; out=0
+            for x in s: peak=max(peak,x); out=min(out,x/peak-1)
+            return out
+          def runup(i,n=20):
+            s=c[i-n+1:i+1]; return c[i]/min(s)-1
+          def feat(i):
+            m20=sma(c,20,i); m50=sma(c,50,i); m200=sma(c,200,i); sd20=stdev(c,20,i)
+            rets=[c[j]/c[j-1]-1 for j in range(i-9,i+1)]
+            return {'ret3':c[i]/c[i-3]-1,'ret7':c[i]/c[i-7]-1,'ret14':c[i]/c[i-14]-1,'ret30':c[i]/c[i-30]-1,
+              'rsi':rsi(i),'vs20':c[i]/m20-1,'vs50':c[i]/m50-1,'vs200':c[i]/m200-1,'atrp':atr(i)/c[i],
+              'volz':volz(i),'bbwidth':4*sd20/m20,'updays10':sum(x>0 for x in rets),'mdd20':mdd(i),'runup20':runup(i),
               'range1':(rows[i]['high']-rows[i]['low'])/c[i],
-              'closepos':(c[i]-rows[i]['low'])/(rows[i]['high']-rows[i]['low']) if rows[i]['high']>rows[i]['low'] else .5,
-            }
+              'closepos':(c[i]-rows[i]['low'])/(rows[i]['high']-rows[i]['low']) if rows[i]['high']>rows[i]['low'] else .5}
 
-          H=14; TH=0.10
+          H=14; allidx=list(range(200,len(rows)-H))
           events=[]
-          for i in range(200,len(rows)-H):
+          for i in allidx:
             fwd=c[i+H]/c[i]-1
-            if abs(fwd)>=TH:
-              direction='UP' if fwd>0 else 'DOWN'
-              events.append({'i':i,'date':rows[i]['date'],'fwd':fwd,'dir':direction,'f':features(i)})
-
-          # collapse clustered labels into distinct move starts: keep first event within 10d of same direction
+            if abs(fwd)>=.10: events.append({'i':i,'date':rows[i]['date'],'fwd':fwd,'dir':'UP' if fwd>0 else 'DOWN','f':feat(i)})
           distinct=[]
           for e in events:
             if distinct and e['dir']==distinct[-1]['dir'] and e['i']-distinct[-1]['i']<=10: continue
             distinct.append(e)
+          def mean(xs): return statistics.mean(xs) if xs else float('nan')
+          lines=['BTC PRE-MOVE PATTERN STUDY — 2 YEARS',f"Window: {rows[0]['date']} to {rows[-1]['date']} | target = +/-10% over next 14 days",f"Distinct setups: {len(distinct)} | UP={sum(e['dir']=='UP' for e in distinct)} | DOWN={sum(e['dir']=='DOWN' for e in distinct)}",'']
 
-          allidx=list(range(200,len(rows)-H))
-          keys=list(features(220).keys())
-          def avg(vals): return statistics.mean(vals) if vals else float('nan')
-          lines=[]
-          lines.append('BTC PRE-MOVE PATTERN STUDY — 2 YEARS')
-          lines.append(f"Window: {rows[0]['date']} to {rows[-1]['date']} | 14-day significant move threshold: +/-10%")
-          lines.append(f"Distinct significant-move setups: {len(distinct)} | UP={sum(e['dir']=='UP' for e in distinct)} | DOWN={sum(e['dir']=='DOWN' for e in distinct)}")
-          lines.append('')
+          lines.append('FEATURE AVERAGES BEFORE DISTINCT +/-10% MOVES')
+          for k in feat(220):
+            u=[e['f'][k] for e in distinct if e['dir']=='UP']; d=[e['f'][k] for e in distinct if e['dir']=='DOWN']; b=[feat(i)[k] for i in allidx]
+            lines.append(f"{k:10s} UP={mean(u):+.4f} DOWN={mean(d):+.4f} ALL={mean(b):+.4f}")
 
-          # Compare feature means before UP / DOWN / all days
-          lines.append('FEATURE AVERAGES AT SIGNAL DATE')
-          for k in keys:
-            ups=[e['f'][k] for e in distinct if e['dir']=='UP' and e['f'][k] is not None]
-            dns=[e['f'][k] for e in distinct if e['dir']=='DOWN' and e['f'][k] is not None]
-            base=[features(i)[k] for i in allidx if features(i)[k] is not None]
-            lines.append(f"{k:10s} UP={avg(ups):+.4f} DOWN={avg(dns):+.4f} ALL={avg(base):+.4f}")
-          lines.append('')
-
-          # Rule mining: manually interpretable behavioral patterns, evaluate 14d outcomes.
-          ruledefs={
-            'Compression_then_breakout_candidate':lambda f: f['bbwidth']<0.12 and f['atrp']<0.035,
-            'Capitulation_pressure':lambda f: f['ret7']<-0.08 and f['rsi']<38 and f['volz']>0.5,
-            'Oversold_without_volume':lambda f: f['ret7']<-0.06 and f['rsi']<40 and f['volz']<=0.5,
-            'Momentum_acceleration_up':lambda f: f['ret7']>0.06 and f['ret30']>0.10 and f['updays10']>=6,
-            'Exhaustion_after_runup':lambda f: f['runup20']>0.18 and f['rsi']>68 and f['closepos']<0.55,
-            'Breakdown_after_weakness':lambda f: f['ret30']<-0.10 and f['vs50']<-0.05 and f['rsi']<45,
-            'Recovery_from_drawdown':lambda f: f['mdd20']<-0.12 and f['ret3']>0.03 and f['closepos']>0.60,
-            'Trend_pullback':lambda f: f['vs200']>0.05 and f['ret7']<-0.05 and f['rsi']<45,
+          rules={
+            'Compression':lambda f:f['bbwidth']<.12 and f['atrp']<.035,
+            'Capitulation':lambda f:f['ret7']<-.08 and f['rsi']<38 and f['volz']>.5,
+            'Oversold_quiet':lambda f:f['ret7']<-.06 and f['rsi']<40 and f['volz']<=.5,
+            'Momentum_up':lambda f:f['ret7']>.06 and f['ret30']>.10 and f['updays10']>=6,
+            'Runup_exhaustion':lambda f:f['runup20']>.18 and f['rsi']>68 and f['closepos']<.55,
+            'Weak_breakdown':lambda f:f['ret30']<-.10 and f['vs50']<-.05 and f['rsi']<45,
+            'Recovery_reversal':lambda f:f['mdd20']<-.12 and f['ret3']>.03 and f['closepos']>.60,
+            'Bull_trend_pullback':lambda f:f['vs200']>.05 and f['ret7']<-.05 and f['rsi']<45,
           }
-          lines.append('INTERPRETABLE PATTERN TESTS (14-DAY FORWARD)')
-          for name,fn in ruledefs.items():
-            vals=[]
-            for i in allidx:
-              f=features(i)
-              if fn(f): vals.append(c[i+H]/c[i]-1)
-            if vals:
-              up=sum(x>0 for x in vals)/len(vals); dn=sum(x<0 for x in vals)/len(vals)
-              bigup=sum(x>0.10 for x in vals)/len(vals); bigdn=sum(x<-0.10 for x in vals)/len(vals)
-              lines.append(f"{name}: N={len(vals)} avg={avg(vals)*100:+.2f}% med={statistics.median(vals)*100:+.2f}% P(up)={up*100:.1f}% P(+10%)={bigup*100:.1f}% P(-10%)={bigdn*100:.1f}%")
-            else: lines.append(f"{name}: N=0")
-          lines.append('')
+          lines+=['','RULE TESTS — NEXT 14 DAYS']
+          for name,rule in rules.items():
+            vals=[c[i+H]/c[i]-1 for i in allidx if rule(feat(i))]
+            if not vals: lines.append(name+': N=0'); continue
+            lines.append(f"{name}: N={len(vals)} avg={mean(vals)*100:+.2f}% med={statistics.median(vals)*100:+.2f}% up={sum(x>0 for x in vals)/len(vals)*100:.1f}% +10={sum(x>.10 for x in vals)/len(vals)*100:.1f}% -10={sum(x<-.10 for x in vals)/len(vals)*100:.1f}%")
 
-          # What preceded the largest 10 rises and falls over 14d?
-          candidates=[]
-          for i in allidx:
-            candidates.append((c[i+H]/c[i]-1,i))
-          lines.append('TOP 10 FUTURE 14D RISES — CONDITIONS AT START')
-          for ret,i in sorted(candidates,reverse=True)[:10]:
-            f=features(i)
-            lines.append(f"{rows[i]['date']} -> {ret*100:+.1f}% | ret7={f['ret7']*100:+.1f}% ret30={f['ret30']*100:+.1f}% RSI={f['rsi']:.1f} volZ={f['volz']:+.1f} ATR%={f['atrp']*100:.1f} BBwidth={f['bbwidth']*100:.1f}% vsMA200={f['vs200']*100:+.1f}% mdd20={f['mdd20']*100:+.1f}%")
-          lines.append('')
-          lines.append('TOP 10 FUTURE 14D FALLS — CONDITIONS AT START')
-          for ret,i in sorted(candidates)[:10]:
-            f=features(i)
-            lines.append(f"{rows[i]['date']} -> {ret*100:+.1f}% | ret7={f['ret7']*100:+.1f}% ret30={f['ret30']*100:+.1f}% RSI={f['rsi']:.1f} volZ={f['volz']:+.1f} ATR%={f['atrp']*100:.1f} BBwidth={f['bbwidth']*100:.1f}% vsMA200={f['vs200']*100:+.1f}% runup20={f['runup20']*100:+.1f}%")
-
-          open('/tmp/pattern_study.txt','w').write('\n'.join(lines)+'\n')
-          print(open('/tmp/pattern_study.txt').read())
+          cand=[(c[i+H]/c[i]-1,i) for i in allidx]
+          lines+=['','TOP 10 14D RISES — STATE AT START']
+          for ret,i in sorted(cand,reverse=True)[:10]:
+            f=feat(i); lines.append(f"{rows[i]['date']} {ret*100:+.1f}% | r7={f['ret7']*100:+.1f}% r30={f['ret30']*100:+.1f}% RSI={f['rsi']:.1f} volZ={f['volz']:+.1f} ATR={f['atrp']*100:.1f}% BB={f['bbwidth']*100:.1f}% MA200={f['vs200']*100:+.1f}% DD20={f['mdd20']*100:+.1f}%")
+          lines+=['','TOP 10 14D FALLS — STATE AT START']
+          for ret,i in sorted(cand)[:10]:
+            f=feat(i); lines.append(f"{rows[i]['date']} {ret*100:+.1f}% | r7={f['ret7']*100:+.1f}% r30={f['ret30']*100:+.1f}% RSI={f['rsi']:.1f} volZ={f['volz']:+.1f} ATR={f['atrp']*100:.1f}% BB={f['bbwidth']*100:.1f}% MA200={f['vs200']*100:+.1f}% run20={f['runup20']*100:+.1f}%")
+          open('btc_pattern_study.txt','w').write('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
           PY
-      - uses: actions/checkout@v4
-      - name: Store pattern-study result
+      - name: Store result
         shell: bash
         run: |
-          cp /tmp/pattern_study.txt btc_pattern_study.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add btc_pattern_study.txt
           git diff --cached --quiet || git commit -m 'Store BTC pattern study [skip ci]'
-          git push
+          git pull --rebase origin btc-backtest-experiment
+          git push origin HEAD:btc-backtest-experiment
