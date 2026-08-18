@@ -10,6 +10,7 @@ import { buildIndicators, scoreLabel } from './lib/indicators'
 import { buildBtcSignalModel } from './lib/signalModel'
 import Gauge from './components/Gauge'
 import IndicatorCard from './components/IndicatorCard'
+import './chart-controls.css'
 
 const DAY = 24 * 60 * 60 * 1000
 const MAX_RANGE_DAYS = { '1h': 180, '4h': 365, '1d': 1825, '1w': 3650 }
@@ -178,14 +179,10 @@ function App() {
     try {
       const startTime = new Date(`${chartFrom}T00:00:00`).getTime()
       const endTime = new Date(`${chartTo}T23:59:59`).getTime()
-      if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
-        throw new Error('El rango de fechas no es válido')
-      }
+      if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) throw new Error('El rango de fechas no es válido')
       const rangeDays = Math.ceil((endTime - startTime) / DAY)
       const maxDays = MAX_RANGE_DAYS[candleInterval]
-      if (rangeDays > maxDays) {
-        throw new Error(`${INTERVAL_LABELS[candleInterval]} admite hasta ${maxDays} días por visualización`)
-      }
+      if (rangeDays > maxDays) throw new Error(`${INTERVAL_LABELS[candleInterval]} admite hasta ${maxDays} días por visualización`)
       const candles = await fetchBtcCandles({ interval: candleInterval, startTime, endTime, maxCandles: 6000 })
       if (!candles.length) throw new Error('No hay datos en ese rango')
       setChartHistory(candles)
@@ -232,112 +229,39 @@ function App() {
   return (
     <main className="appShell">
       <header className="topbar">
-        <div>
-          <div className="brand"><Activity size={22} /> CRYPTO RADAR</div>
-          <div className="brandSub">Signal · Validation · Risk</div>
-        </div>
-        <div className="live">
-          {error ? <WifiOff size={16} /> : <Wifi size={16} />}
-          <span>{error ? 'Sin conexión de datos' : 'LIVE'}</span>
-          {lastUpdated && <small>{lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}
-        </div>
+        <div><div className="brand"><Activity size={22} /> CRYPTO RADAR</div><div className="brandSub">Signal · Validation · Risk</div></div>
+        <div className="live">{error ? <WifiOff size={16} /> : <Wifi size={16} />}<span>{error ? 'Sin conexión de datos' : 'LIVE'}</span>{lastUpdated && <small>{lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}</div>
       </header>
 
       <section className="hero glass">
-        <div className="coinSelectorWrap">
-          <label>Activo</label>
-          <div className="selectShell">
-            <select value={coinId} onChange={(e) => setCoinId(e.target.value)}>
-              {COINS.map((c) => <option value={c.id} key={c.id}>{c.symbol} · {c.name}</option>)}
-            </select>
-            <ChevronDown size={17} />
-          </div>
-        </div>
-        <div className="priceBlock">
-          <span>{coin.symbol}</span>
-          <strong>{fmtPrice(snapshot?.current_price)}</strong>
-          <div className={change24 >= 0 ? 'positive' : 'negative'}>
-            {change24 >= 0 ? '+' : ''}{change24.toFixed(2)}% · 24h
-          </div>
-        </div>
-        <button className="refreshBtn" onClick={() => { loadBase(); if (coinId === 'bitcoin') loadBtcChart() }} disabled={loading || chartLoading}>
-          <RefreshCw size={17} className={loading || chartLoading ? 'spin' : ''} /> Actualizar
-        </button>
+        <div className="coinSelectorWrap"><label>Activo</label><div className="selectShell"><select value={coinId} onChange={(e) => setCoinId(e.target.value)}>{COINS.map((c) => <option value={c.id} key={c.id}>{c.symbol} · {c.name}</option>)}</select><ChevronDown size={17} /></div></div>
+        <div className="priceBlock"><span>{coin.symbol}</span><strong>{fmtPrice(snapshot?.current_price)}</strong><div className={change24 >= 0 ? 'positive' : 'negative'}>{change24 >= 0 ? '+' : ''}{change24.toFixed(2)}% · 24h</div></div>
+        <button className="refreshBtn" onClick={() => { loadBase(); if (coinId === 'bitcoin') loadBtcChart() }} disabled={loading || chartLoading}><RefreshCw size={17} className={loading || chartLoading ? 'spin' : ''} /> Actualizar</button>
       </section>
 
       {error && <div className="errorBox">{error}. Reintentá en unos segundos.</div>}
 
       {btcModel && (
         <section className={`decisionCard glass ${actionClass}`}>
-          <div className="decisionMain">
-            <span className="eyebrow"><Target size={14}/> SEÑAL BTC · MODELO 2 AÑOS</span>
-            <div className="actionWord">{btcModel.action}</div>
-            <p>{btcModel.reason}</p>
-          </div>
-          <div className="decisionMetrics">
-            <div><span>Efectividad observada</span><strong>{btcModel.effectiveness == null ? '—' : `${(btcModel.effectiveness * 100).toFixed(0)}%`}</strong><small>{btcModel.effectiveness == null ? 'Sin patrón activo' : `${btcModel.evidenceN} casos · ${btcModel.horizon} días`}</small></div>
-            <div><span>Setup COMPRA</span><strong>{btcModel.buyStats.hitRate == null ? '—' : `${(btcModel.buyStats.hitRate * 100).toFixed(0)}%`}</strong><small>{btcModel.buyStats.n} señales · horizonte 14d</small></div>
-            <div><span>Setup VENTA</span><strong>{btcModel.sellStats.hitRate == null ? '—' : `${(btcModel.sellStats.hitRate * 100).toFixed(0)}%`}</strong><small>{btcModel.sellStats.n} señales · horizonte 90d</small></div>
-          </div>
+          <div className="decisionMain"><span className="eyebrow"><Target size={14}/> SEÑAL BTC · MODELO 2 AÑOS</span><div className="actionWord">{btcModel.action}</div><p>{btcModel.reason}</p></div>
+          <div className="decisionMetrics"><div><span>Efectividad observada</span><strong>{btcModel.effectiveness == null ? '—' : `${(btcModel.effectiveness * 100).toFixed(0)}%`}</strong><small>{btcModel.effectiveness == null ? 'Sin patrón activo' : `${btcModel.evidenceN} casos · ${btcModel.horizon} días`}</small></div><div><span>Setup COMPRA</span><strong>{btcModel.buyStats.hitRate == null ? '—' : `${(btcModel.buyStats.hitRate * 100).toFixed(0)}%`}</strong><small>{btcModel.buyStats.n} señales · horizonte 14d</small></div><div><span>Setup VENTA</span><strong>{btcModel.sellStats.hitRate == null ? '—' : `${(btcModel.sellStats.hitRate * 100).toFixed(0)}%`}</strong><small>{btcModel.sellStats.n} señales · horizonte 90d</small></div></div>
           <div className="modelState"><span>RSI {btcModel.current.rsi?.toFixed(1)}</span><span>7d {pct(btcModel.current.ret7)}</span><span>30d {pct(btcModel.current.ret30)}</span><span>vs MA200 {pct(btcModel.current.vs200)}</span></div>
         </section>
       )}
 
       {indicators && (
         <>
-          <section className="scoreGrid">
-            <Gauge value={indicators.bottomScore} label="BOTTOM SCORE" subtitle={scoreLabel(indicators.bottomScore, 'bottom')} tone="green" />
-            <Gauge value={indicators.trendScore} label="TREND SCORE" subtitle={scoreLabel(indicators.trendScore, 'trend')} tone="blue" />
-            <div className="glass signalSummary">
-              <span className="eyebrow">LECTURA OPERATIVA</span>
-              <h2>{indicators.bottomScore >= 65 && indicators.trendScore >= 60 ? 'Valor + tendencia convergen' : indicators.trendScore >= 65 ? 'Tendencia positiva; vigilar entrada' : indicators.bottomScore >= 65 ? 'Estrés alto; giro aún no confirmado' : 'Sin convergencia fuerte'}</h2>
-              <p>El indicador superior manda. Bottom y Trend quedan como diagnóstico para explicar la señal.</p>
-              <div className="miniStats"><div><span>{coinId === 'bitcoin' ? 'Máximo 2 años' : 'ATH'}</span><strong>{fmtPrice(snapshot?.ath)}</strong></div><div><span>Drawdown</span><strong>-{indicators.drawdown.toFixed(1)}%</strong></div><div><span>RSI</span><strong>{indicators.rsi?.toFixed(1)}</strong></div></div>
-            </div>
-          </section>
+          <section className="scoreGrid"><Gauge value={indicators.bottomScore} label="BOTTOM SCORE" subtitle={scoreLabel(indicators.bottomScore, 'bottom')} tone="green" /><Gauge value={indicators.trendScore} label="TREND SCORE" subtitle={scoreLabel(indicators.trendScore, 'trend')} tone="blue" /><div className="glass signalSummary"><span className="eyebrow">LECTURA OPERATIVA</span><h2>{indicators.bottomScore >= 65 && indicators.trendScore >= 60 ? 'Valor + tendencia convergen' : indicators.trendScore >= 65 ? 'Tendencia positiva; vigilar entrada' : indicators.bottomScore >= 65 ? 'Estrés alto; giro aún no confirmado' : 'Sin convergencia fuerte'}</h2><p>El indicador superior manda. Bottom y Trend quedan como diagnóstico para explicar la señal.</p><div className="miniStats"><div><span>{coinId === 'bitcoin' ? 'Máximo 2 años' : 'ATH'}</span><strong>{fmtPrice(snapshot?.ath)}</strong></div><div><span>Drawdown</span><strong>-{indicators.drawdown.toFixed(1)}%</strong></div><div><span>RSI</span><strong>{indicators.rsi?.toFixed(1)}</strong></div></div></div></section>
 
           <section className="chartCard glass">
-            <div className="sectionTitle chartHeader">
-              <div><span className="eyebrow">GRÁFICO CONFIGURABLE</span><h2>{coinId === 'bitcoin' ? 'Velas BTC + señales' : 'Precio + tendencia'}</h2></div>
-              {coinId === 'bitcoin' && <div className="chartMode"><CandleIcon size={16}/> {INTERVAL_LABELS[candleInterval]}</div>}
-            </div>
-
-            {coinId === 'bitcoin' && (
-              <div className="chartControls">
-                <label><span>Desde</span><div className="dateShell"><input type="date" value={chartFrom} onChange={(e) => setChartFrom(e.target.value)} /></div></label>
-                <label><span>Hasta</span><div className="dateShell"><input type="date" value={chartTo} onChange={(e) => setChartTo(e.target.value)} /></div></label>
-                <label><span>Vela</span><select value={candleInterval} onChange={(e) => setCandleInterval(e.target.value)}><option value="1h">1 hora</option><option value="4h">4 horas</option><option value="1d">1 día</option><option value="1w">1 semana</option></select></label>
-                <button className="applyChartBtn" onClick={loadBtcChart} disabled={chartLoading}>{chartLoading ? 'Cargando…' : 'Aplicar'}</button>
-              </div>
-            )}
-
+            <div className="sectionTitle chartHeader"><div><span className="eyebrow">GRÁFICO CONFIGURABLE</span><h2>{coinId === 'bitcoin' ? 'Velas BTC + señales' : 'Precio + tendencia'}</h2></div>{coinId === 'bitcoin' && <div className="chartMode"><CandleIcon size={16}/> {INTERVAL_LABELS[candleInterval]}</div>}</div>
+            {coinId === 'bitcoin' && <div className="chartControls"><label><span>Desde</span><div className="dateShell"><input type="date" value={chartFrom} onChange={(e) => setChartFrom(e.target.value)} /></div></label><label><span>Hasta</span><div className="dateShell"><input type="date" value={chartTo} onChange={(e) => setChartTo(e.target.value)} /></div></label><label><span>Vela</span><select value={candleInterval} onChange={(e) => setCandleInterval(e.target.value)}><option value="1h">1 hora</option><option value="4h">4 horas</option><option value="1d">1 día</option><option value="1w">1 semana</option></select></label><button className="applyChartBtn" onClick={loadBtcChart} disabled={chartLoading}>{chartLoading ? 'Cargando…' : 'Aplicar'}</button></div>}
             {chartError && <div className="chartError">{chartError}</div>}
-
-            <div className="chartWrap candleWrap">
-              {coinId === 'bitcoin' ? (
-                <CandleChart data={chartHistory} signals={btcSignalsForChart} />
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={lineChartData} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
-                    <CartesianGrid stroke="#1d2a3c" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: '#7f8da3', fontSize: 11 }} minTickGap={65} axisLine={false} tickLine={false}/>
-                    <YAxis domain={['auto', 'auto']} tickFormatter={(v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v.toFixed(2)}`} tick={{ fill: '#7f8da3', fontSize: 11 }} axisLine={false} tickLine={false} width={60}/>
-                    <Tooltip contentStyle={{ background: '#0c1727', border: '1px solid #26374f', borderRadius: 12 }} labelStyle={{ color: '#a8b5c8' }} formatter={(v, name) => [fmtPrice(v), name === 'price' ? 'Precio' : name.toUpperCase()]}/>
-                    <Area type="monotone" dataKey="price" stroke="#38bdf8" strokeWidth={2.3} fillOpacity={0.12} fill="#38bdf8" dot={false}/>
-                    <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 5" dot={false}/>
-                    <Line type="monotone" dataKey="ma200" stroke="#22c55e" strokeWidth={1.6} strokeDasharray="7 6" dot={false}/>
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+            <div className="chartWrap candleWrap">{coinId === 'bitcoin' ? <CandleChart data={chartHistory} signals={btcSignalsForChart} /> : <ResponsiveContainer width="100%" height="100%"><AreaChart data={lineChartData} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}><CartesianGrid stroke="#1d2a3c" vertical={false} /><XAxis dataKey="date" tick={{ fill: '#7f8da3', fontSize: 11 }} minTickGap={65} axisLine={false} tickLine={false}/><YAxis domain={['auto', 'auto']} tickFormatter={(v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v.toFixed(2)}`} tick={{ fill: '#7f8da3', fontSize: 11 }} axisLine={false} tickLine={false} width={60}/><Tooltip contentStyle={{ background: '#0c1727', border: '1px solid #26374f', borderRadius: 12 }} labelStyle={{ color: '#a8b5c8' }} formatter={(v, name) => [fmtPrice(v), name === 'price' ? 'Precio' : name.toUpperCase()]}/><Area type="monotone" dataKey="price" stroke="#38bdf8" strokeWidth={2.3} fillOpacity={0.12} fill="#38bdf8" dot={false}/><Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 5" dot={false}/><Line type="monotone" dataKey="ma200" stroke="#22c55e" strokeWidth={1.6} strokeDasharray="7 6" dot={false}/></AreaChart></ResponsiveContainer>}</div>
             {coinId === 'bitcoin' && <div className="chartFoot">{chartHistory.length.toLocaleString()} velas · {chartFrom} → {chartTo}{candleInterval === '1d' ? ' · puntos verdes/rojos = señales históricas del modelo' : ''}</div>}
           </section>
 
-          <section>
-            <div className="sectionTitle outside"><div><span className="eyebrow">DIAGNÓSTICO</span><h2>Indicadores actuales</h2></div><span className="hint">La señal final solo se activa con ventaja histórica suficiente</span></div>
-            <div className="indicatorsGrid">{indicators.rows.map((item) => <IndicatorCard key={item.label} item={item}/>)}</div>
-          </section>
-
+          <section><div className="sectionTitle outside"><div><span className="eyebrow">DIAGNÓSTICO</span><h2>Indicadores actuales</h2></div><span className="hint">La señal final solo se activa con ventaja histórica suficiente</span></div><div className="indicatorsGrid">{indicators.rows.map((item) => <IndicatorCard key={item.label} item={item}/>)}</div></section>
           <section className="marketStrip glass"><div><span>Fuente</span><strong>{snapshot.source || 'Mercado'}</strong></div><div><span>7 días</span><strong className={(snapshot.price_change_percentage_7d_in_currency || 0) >= 0 ? 'positive' : 'negative'}>{(snapshot.price_change_percentage_7d_in_currency || 0).toFixed(2)}%</strong></div><div><span>30 días</span><strong className={(snapshot.price_change_percentage_30d_in_currency || 0) >= 0 ? 'positive' : 'negative'}>{(snapshot.price_change_percentage_30d_in_currency || 0).toFixed(2)}%</strong></div><div><span>Modelo</span><strong>{coinId === 'bitcoin' ? 'V0.3 BTC' : 'V0.1'}</strong></div></section>
         </>
       )}
