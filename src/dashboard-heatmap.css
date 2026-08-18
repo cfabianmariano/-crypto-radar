@@ -1,0 +1,60 @@
+.restoredScores { display:none !important; }
+
+.sectionTitle.outside { margin-top:18px; }
+.sectionTitle.outside .eyebrow { margin-bottom:5px; }
+.sectionTitle.outside h2 { font-size:18px; }
+
+.indicatorsGrid {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+}
+
+.indicatorCard.heatTile {
+  position:relative;
+  min-height:138px;
+  padding:15px;
+  border-radius:16px;
+  overflow:hidden;
+  box-shadow:none;
+  border:1px solid rgba(255,255,255,.08);
+}
+
+.heatTile::after {
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg,rgba(255,255,255,.05),transparent 45%);
+  pointer-events:none;
+}
+
+.heatStrongSell { background:linear-gradient(145deg,#641c26,#35131a) !important; }
+.heatSell { background:linear-gradient(145deg,#71311f,#3b2018) !important; }
+.heatNeutral { background:linear-gradient(145deg,#66531b,#3a3217) !important; }
+.heatBuy { background:linear-gradient(145deg,#1e5b3c,#153525) !important; }
+.heatStrongBuy { background:linear-gradient(145deg,#147242,#123d2a) !important; }
+
+.heatTile .indicatorTop { position:relative; z-index:1; align-items:flex-start; }
+.heatTile .family { color:rgba(255,255,255,.62); font-size:9px; }
+.heatTile .indicatorTop h3 { font-size:13px; margin-top:5px; color:#f8fafc; line-height:1.2; }
+.heatTile .indicatorTop strong { font-size:20px; color:#fff; white-space:nowrap; }
+.heatScore { position:relative; z-index:1; margin-top:18px; font-size:34px; font-weight:900; line-height:.9; letter-spacing:-.04em; color:#fff; }
+.heatCaption { position:relative; z-index:1; margin-top:6px; font-size:9px; text-transform:uppercase; letter-spacing:.09em; color:rgba(255,255,255,.6); }
+
+.decisionCard.actionBuy { background:linear-gradient(135deg,rgba(18,94,57,.96),rgba(9,31,24,.96)) !important; }
+.decisionCard.actionSell { background:linear-gradient(135deg,rgba(103,28,37,.96),rgba(38,13,18,.96)) !important; }
+.decisionCard.actionWait { background:linear-gradient(135deg,rgba(105,78,18,.94),rgba(43,34,14,.96)) !important; }
+.decisionCard .decisionMain p { color:rgba(255,255,255,.7); }
+
+@media (max-width:900px) {
+  .indicatorsGrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+
+@media (max-width:620px) {
+  .indicatorsGrid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .indicatorCard.heatTile { min-height:125px; padding:13px; }
+  .heatTile .indicatorTop { gap:10px; }
+  .heatTile .indicatorTop h3 { font-size:12px; }
+  .heatTile .indicatorTop strong { font-size:17px; }
+  .heatScore { font-size:30px; margin-top:15px; }
+}
