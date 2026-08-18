@@ -8,6 +8,36 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        let applied = false
+        const setNativeValue = (el, value) => {
+          const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+          setter?.call(el, value)
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+          el.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+        const applyDefaultChartWindow = () => {
+          if (applied) return
+          const dates = document.querySelectorAll('input[type="date"]')
+          const selects = [...document.querySelectorAll('select')]
+          const interval = selects.find((el) => [...el.options].some((o) => o.value === '1d') && [...el.options].some((o) => o.value === '1w'))
+          if (dates.length < 2 || !interval) return
+          const today = new Date()
+          const from = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+          const iso = (d) => d.toISOString().slice(0, 10)
+          setNativeValue(dates[0], iso(from))
+          setNativeValue(dates[1], iso(today))
+          setNativeValue(interval, '1d')
+          applied = true
+          observer.disconnect()
+        }
+        const observer = new MutationObserver(applyDefaultChartWindow)
+        observer.observe(document.documentElement, { childList: true, subtree: true })
+        window.addEventListener('DOMContentLoaded', applyDefaultChartWindow, { once: true })
+      })()
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
