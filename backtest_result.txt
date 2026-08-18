@@ -22,7 +22,7 @@ HORIZON 90d
   BUY_hit=52.0% N=25 | SELL_hit=70.4% N=27
   always_long_positive_baseline=35.7%
 
-LATEST: 2026-08-18 close=$64,115.99 score=-30.8 signal=NEUTRAL RSI14=50.1 vsMA200=-7.2%
+LATEST: 2026-08-18 close=$64,134.21 score=-30.6 signal=NEUTRAL RSI14=50.2 vsMA200=-7.2%
 
 LAST 12 DISTINCT SIGNALS
 2026-06-02 SELL score=-75.3 price=$66,761 | 7d=+7.5% | 30d=+7.8% | 90d=pending
