@@ -28,9 +28,10 @@ export async function fetchBtcCandles({ interval = '1d', startTime, endTime, max
   const end = endTime ?? Date.now()
   const start = startTime ?? (end - 730 * 24 * 60 * 60 * 1000)
   const result = []
+  const seen = new Set()
   let cursor = start
 
-  while (cursor < end && result.length < maxCandles) {
+  while (cursor <= end && result.length < maxCandles) {
     const params = new URLSearchParams({
       symbol: 'BTCUSDT',
       interval,
@@ -42,17 +43,24 @@ export async function fetchBtcCandles({ interval = '1d', startTime, endTime, max
     if (!rows?.length) break
 
     for (const row of rows) {
-      if (result.length >= maxCandles) break
+      const ts = Number(row[0])
+      if (!Number.isFinite(ts) || ts < start || ts > end || seen.has(ts)) continue
+      seen.add(ts)
       result.push(mapKline(row, interval))
+      if (result.length >= maxCandles) break
     }
 
     const lastOpenTime = Number(rows[rows.length - 1][0])
-    if (!Number.isFinite(lastOpenTime) || lastOpenTime <= cursor) break
-    cursor = lastOpenTime + 1
+    if (!Number.isFinite(lastOpenTime)) break
+    const nextCursor = lastOpenTime + 1
+    if (nextCursor <= cursor) break
+    cursor = nextCursor
     if (rows.length < 1000) break
   }
 
   return result
+    .filter((row) => row.timestamp >= start && row.timestamp <= end)
+    .sort((a, b) => a.timestamp - b.timestamp)
 }
 
 async function fetchBtcDailyModelHistory() {
