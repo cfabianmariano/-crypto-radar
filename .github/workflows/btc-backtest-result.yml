@@ -1,0 +1,108 @@
+name: BTC Backtest Result
+
+on:
+  push:
+    branches: [btc-backtest-experiment]
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run and persist backtest
+        shell: bash
+        run: |
+          python3 - <<'PY' > backtest_result.txt
+          import json, statistics, urllib.request
+          from datetime import datetime, timezone
+
+          u='https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000'
+          req=urllib.request.Request(u,headers={'User-Agent':'crypto-radar-backtest/1.0'})
+          raw=json.load(urllib.request.urlopen(req,timeout=30))[-730:]
+          rows=[{'date':datetime.fromtimestamp(int(x[0])/1000,tz=timezone.utc).strftime('%Y-%m-%d'),'high':float(x[2]),'low':float(x[3]),'close':float(x[4]),'volume':float(x[5])} for x in raw]
+          c=[x['close'] for x in rows]; v=[x['volume'] for x in rows]
+
+          def clamp(x): return max(-1,min(1,x))
+          def sma(a,n):
+              o=[None]*len(a); s=0
+              for i,x in enumerate(a):
+                  s+=x
+                  if i>=n:s-=a[i-n]
+                  if i>=n-1:o[i]=s/n
+              return o
+          def ema(a,n):
+              o=[]; z=None; k=2/(n+1)
+              for x in a:
+                  z=x if z is None else k*x+(1-k)*z;o.append(z)
+              return o
+          def rsi(a,n=14):
+              o=[None]*len(a)
+              for i in range(n,len(a)):
+                  d=[a[j]-a[j-1] for j in range(i-n+1,i+1)]
+                  g=sum(max(x,0) for x in d)/n;l=sum(max(-x,0) for x in d)/n
+                  o[i]=100 if l==0 else 100-100/(1+g/l)
+              return o
+
+          ma50=sma(c,50);ma200=sma(c,200);r=rsi(c)
+          e12=ema(c,12);e26=ema(c,26);mac=[a-b for a,b in zip(e12,e26)];ms=ema(mac,9);mh=[a-b for a,b in zip(mac,ms)]
+          score=[None]*len(c)
+          for i in range(200,len(c)):
+              p=c[i];ret20=p/c[i-20]-1;ret60=p/c[i-60]-1
+              vz=0
+              vw=v[i-20:i]; sd=statistics.pstdev(vw)
+              if sd:vz=(v[i]-statistics.mean(vw))/sd
+              vote=(25*clamp((p/ma200[i]-1)/.15)+15*clamp((ma50[i]/ma200[i]-1)/.08)+15*clamp(ret20/.15)+15*clamp(ret60/.30)+15*clamp((r[i]-50)/20)+10*clamp(mh[i]/(p*.01))+5*clamp(vz/2)*(1 if ret20>=0 else -1))
+              score[i]=round(vote,1)
+
+          BUY,SELL,COOLDOWN=35,-35,7
+          sig=[];li=-999;ls=None
+          for i,s in enumerate(score):
+              if s is None:continue
+              side='BUY' if s>=BUY else ('SELL' if s<=SELL else None)
+              if not side:continue
+              prev=score[i-1] if i else None
+              crossed=(side=='BUY' and (prev is None or prev<BUY)) or (side=='SELL' and (prev is None or prev>SELL))
+              if side!=ls or crossed or i-li>=COOLDOWN:
+                  sig.append((i,side,s));li=i;ls=side
+
+          print('BTC SIGNAL ENGINE — 2 YEAR TECHNICAL PROTOTYPE')
+          print(f"Window: {rows[0]['date']} to {rows[-1]['date']} | candles={len(rows)} | source=Binance BTCUSDT spot daily")
+          print('Signals are distinct events, deduplicated with 7-day cooldown. No look-ahead is used in indicator calculation.')
+          print('This run is TECHNICAL ONLY; fundamental/on-chain inputs are not yet included.')
+          print(f'Distinct signals: {len(sig)}')
+          print()
+          for h,thr in [(7,.015),(30,.03),(90,.05)]:
+              u=[]
+              for i,side,s in sig:
+                  if i+h>=len(c):continue
+                  rr=c[i+h]/c[i]-1; signed=rr if side=='BUY' else -rr
+                  u.append((side,signed))
+              wins=sum(x[1]>0 for x in u); meaningful=sum(x[1]>thr for x in u)
+              buys=[x for x in u if x[0]=='BUY'];sells=[x for x in u if x[0]=='SELL']
+              baseline=[c[i+h]/c[i]-1 for i in range(200,len(c)-h)]
+              print(f'HORIZON {h}d')
+              print(f'  N={len(u)} | directional_hit={wins/len(u)*100:.1f}% | meaningful_hit(>{thr*100:.1f}%)={meaningful/len(u)*100:.1f}%')
+              print(f'  avg_signed_return={statistics.mean(x[1] for x in u)*100:+.2f}% | median_signed_return={statistics.median(x[1] for x in u)*100:+.2f}%')
+              print(f"  BUY_hit={(sum(x[1]>0 for x in buys)/len(buys)*100 if buys else float('nan')):.1f}% N={len(buys)} | SELL_hit={(sum(x[1]>0 for x in sells)/len(sells)*100 if sells else float('nan')):.1f}% N={len(sells)}")
+              print(f'  always_long_positive_baseline={sum(x>0 for x in baseline)/len(baseline)*100:.1f}%')
+              print()
+          i=len(c)-1;s=score[i];side='BUY' if s>=BUY else ('SELL' if s<=SELL else 'NEUTRAL')
+          print(f"LATEST: {rows[i]['date']} close=${c[i]:,.2f} score={s} signal={side} RSI14={r[i]:.1f} vsMA200={(c[i]/ma200[i]-1)*100:+.1f}%")
+          print('\nLAST 12 DISTINCT SIGNALS')
+          for i,side,s in sig[-12:]:
+              vals=[]
+              for h in (7,30,90):
+                  if i+h<len(c):
+                      rr=c[i+h]/c[i]-1; rr=rr if side=='BUY' else -rr; vals.append(f'{h}d={rr*100:+.1f}%')
+                  else: vals.append(f'{h}d=pending')
+              print(f"{rows[i]['date']} {side} score={s} price=${c[i]:,.0f} | "+' | '.join(vals))
+          PY
+          cat backtest_result.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backtest_result.txt
+          git commit -m "Store BTC backtest result [skip ci]" || exit 0
+          git push
