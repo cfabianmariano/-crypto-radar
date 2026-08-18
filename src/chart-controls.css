@@ -9,17 +9,30 @@
 .applyChartBtn:disabled { opacity:.55; cursor:default; }
 .chartError { margin-top:12px; border:1px solid #713a45; background:#2a1218; color:#fecdd3; padding:10px 12px; border-radius:10px; font-size:12px; }
 .candleWrap { height:auto; min-height:360px; }
+.candleSection { margin-top:16px; }
+.chartIndicatorStrip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin-bottom:10px; }
+.chartIndicatorStrip div { min-width:0; padding:10px 11px; border:1px solid #1f3148; border-radius:11px; background:#0a1625; }
+.chartIndicatorStrip span { display:block; color:#71829a; font-size:9px; line-height:1.25; text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; }
+.chartIndicatorStrip strong { display:block; color:#edf5ff; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chartSignalLegend { display:flex; flex-wrap:wrap; gap:10px 15px; align-items:center; color:#8191a8; font-size:10px; margin:2px 0 8px; }
+.signalDot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; border:1px solid #fff; vertical-align:-1px; }
+.buySignal { background:#22c55e; }
+.sellSignal { background:#ef4444; }
+.studyLine { display:inline-block; width:16px; height:2px; margin-right:5px; vertical-align:3px; }
+.sma20Line { background:#38bdf8; }
+.sma50Line { background:#f59e0b; }
 .candleCanvas { position:relative; width:100%; min-height:360px; user-select:none; touch-action:pan-y; }
 .candleCanvas svg { display:block; width:100%; height:auto; min-height:330px; overflow:visible; }
 .candleTooltip { position:absolute; top:12px; right:12px; display:grid; grid-template-columns:auto auto; gap:4px 10px; min-width:190px; padding:10px 12px; border:1px solid #2a3d57; border-radius:10px; background:rgba(8,18,31,.94); color:#cbd5e1; font-size:11px; pointer-events:none; backdrop-filter:blur(8px); }
 .candleTooltip strong { grid-column:1/-1; color:#f8fafc; font-size:12px; margin-bottom:2px; }
-.chartFoot { color:#667992; font-size:11px; margin-top:7px; }
+.chartFoot { color:#667992; font-size:11px; margin-top:7px; line-height:1.45; }
 .chartEmpty { min-height:320px; display:grid; place-items:center; color:#7f8fa7; }
 
 @media (max-width: 760px) {
   .chartControls { grid-template-columns:1fr 1fr; }
   .chartControls label:nth-child(3), .applyChartBtn { grid-column:auto; }
   .chartMode { font-size:11px; }
+  .chartIndicatorStrip { grid-template-columns:repeat(3,1fr); }
 }
 
 @media (max-width: 520px) {
@@ -27,6 +40,9 @@
   .chartControls label, .applyChartBtn { grid-column:1; }
   .chartHeader { align-items:flex-start; }
   .chartMode { margin-top:2px; }
+  .chartIndicatorStrip { grid-template-columns:1fr 1fr; gap:7px; }
+  .chartIndicatorStrip div:first-child { grid-column:1/-1; }
+  .chartIndicatorStrip strong { font-size:14px; }
   .candleCanvas { min-height:310px; }
   .candleCanvas svg { min-height:300px; }
   .candleTooltip { top:8px; right:8px; min-width:160px; padding:8px 10px; font-size:10px; }
