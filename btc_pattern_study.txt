@@ -21,7 +21,7 @@ range1     UP=+0.0368 DOWN=+0.0261 ALL=+0.0331
 closepos   UP=+0.2673 DOWN=+0.5336 ALL=+0.5150
 
 RULE TESTS — NEXT 14 DAYS
-Compression: N=227 avg=-1.29% med=+0.01% up=50.2% +10=3.5% -10=11.9%
+Compression: N=227 avg=-1.29% med=+0.03% up=50.2% +10=3.5% -10=11.9%
 Capitulation: N=21 avg=-1.85% med=-1.81% up=33.3% +10=4.8% -10=19.0%
 Oversold_quiet: N=23 avg=-0.38% med=+1.63% up=60.9% +10=8.7% -10=13.0%
 Momentum_up: N=19 avg=+0.08% med=+0.43% up=63.2% +10=5.3% -10=15.8%
