@@ -26,9 +26,47 @@ const fmtPrice = (n) => {
 const pct = (n) => n == null ? '—' : `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`
 const toInputDate = (date) => date.toISOString().slice(0, 10)
 
-function CandleChart({ data, signals = [] }) {
+function rollingSmaLocal(values, period) {
+  const out = Array(values.length).fill(null)
+  let sum = 0
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i]
+    if (i >= period) sum -= values[i - period]
+    if (i >= period - 1) out[i] = sum / period
+  }
+  return out
+}
+
+function rsiSeries(values, period = 14) {
+  const out = Array(values.length).fill(null)
+  for (let i = period; i < values.length; i++) {
+    let gains = 0
+    let losses = 0
+    for (let j = i - period + 1; j <= i; j++) {
+      const d = values[j] - values[j - 1]
+      if (d >= 0) gains += d
+      else losses += -d
+    }
+    if (!losses) out[i] = 100
+    else {
+      const rs = (gains / period) / (losses / period)
+      out[i] = 100 - 100 / (1 + rs)
+    }
+  }
+  return out
+}
+
+function CandleChart({ data, signals = [], intervalLabel = '' }) {
   const wrapRef = useRef(null)
   const [hoverIndex, setHoverIndex] = useState(null)
+
+  const studies = useMemo(() => {
+    const closes = data.map((d) => d.close)
+    const sma20 = rollingSmaLocal(closes, 20)
+    const sma50 = rollingSmaLocal(closes, 50)
+    const rsi14 = rsiSeries(closes, 14)
+    return { closes, sma20, sma50, rsi14 }
+  }, [data])
 
   const geometry = useMemo(() => {
     if (!data.length) return null
@@ -56,11 +94,12 @@ function CandleChart({ data, signals = [] }) {
   const g = geometry
   const yTicks = Array.from({ length: 5 }, (_, i) => g.yMin + ((g.yMax - g.yMin) * i) / 4)
   const xTickIndexes = Array.from(new Set([0, Math.floor((data.length - 1) * 0.25), Math.floor((data.length - 1) * 0.5), Math.floor((data.length - 1) * 0.75), data.length - 1]))
-  const hovered = hoverIndex == null ? null : data[hoverIndex]
+  const selectedIndex = hoverIndex == null ? data.length - 1 : hoverIndex
+  const hovered = data[selectedIndex]
 
   const signalPoints = signals.map((s) => {
     const targetTs = s.timestamp
-    if (!targetTs || targetTs < data[0].timestamp || targetTs > data[data.length - 1].timestamp) return null
+    if (!targetTs || targetTs < data[0].timestamp || targetTs > data[data.length - 1].timestamp + 7 * DAY) return null
     let best = 0
     let bestDiff = Math.abs(data[0].timestamp - targetTs)
     for (let i = 1; i < data.length; i++) {
@@ -69,6 +108,18 @@ function CandleChart({ data, signals = [] }) {
     }
     return { ...s, i: best }
   }).filter(Boolean)
+
+  const linePath = (series) => {
+    let d = ''
+    let drawing = false
+    for (let i = 0; i < series.length; i++) {
+      const v = series[i]
+      if (v == null) { drawing = false; continue }
+      d += `${drawing ? ' L' : ' M'} ${g.x(i).toFixed(2)} ${g.y(v).toFixed(2)}`
+      drawing = true
+    }
+    return d
+  }
 
   const handlePointer = (event) => {
     const rect = wrapRef.current?.getBoundingClientRect()
@@ -79,55 +130,89 @@ function CandleChart({ data, signals = [] }) {
     setHoverIndex(i)
   }
 
+  const currentClose = hovered?.close
+  const currentSma20 = studies.sma20[selectedIndex]
+  const currentSma50 = studies.sma50[selectedIndex]
+  const currentRsi = studies.rsi14[selectedIndex]
+  const momentumIndex = Math.max(0, selectedIndex - 7)
+  const momentum7 = currentClose && studies.closes[momentumIndex] ? currentClose / studies.closes[momentumIndex] - 1 : null
+
   return (
-    <div className="candleCanvas" ref={wrapRef} onPointerMove={handlePointer} onPointerLeave={() => setHoverIndex(null)}>
-      <svg viewBox={`0 0 ${g.W} ${g.H}`} role="img" aria-label="Gráfico de velas BTC">
-        {yTicks.map((tick) => (
-          <g key={tick}>
-            <line x1={g.left} x2={g.W - g.right} y1={g.y(tick)} y2={g.y(tick)} stroke="#1d2a3c" strokeWidth="1" />
-            <text x={g.left - 9} y={g.y(tick) + 4} textAnchor="end" fill="#75849a" fontSize="12">{fmtPrice(tick)}</text>
-          </g>
-        ))}
+    <div className="candleSection">
+      <div className="chartIndicatorStrip">
+        <div><span>Cierre</span><strong>{fmtPrice(currentClose)}</strong></div>
+        <div><span>RSI 14 · {intervalLabel}</span><strong className={currentRsi != null && currentRsi < 35 ? 'positive' : currentRsi != null && currentRsi > 70 ? 'negative' : ''}>{currentRsi == null ? '—' : currentRsi.toFixed(1)}</strong></div>
+        <div><span>vs SMA20</span><strong>{currentSma20 ? pct(currentClose / currentSma20 - 1) : '—'}</strong></div>
+        <div><span>vs SMA50</span><strong>{currentSma50 ? pct(currentClose / currentSma50 - 1) : '—'}</strong></div>
+        <div><span>Momentum 7 velas</span><strong className={momentum7 >= 0 ? 'positive' : 'negative'}>{pct(momentum7)}</strong></div>
+      </div>
 
-        {data.map((d, i) => {
-          const up = d.close >= d.open
-          const x = g.x(i)
-          const yOpen = g.y(d.open)
-          const yClose = g.y(d.close)
-          const yHigh = g.y(d.high)
-          const yLow = g.y(d.low)
-          const bodyY = Math.min(yOpen, yClose)
-          const bodyH = Math.max(1.2, Math.abs(yClose - yOpen))
-          const color = up ? '#22c55e' : '#ef4444'
-          return (
-            <g key={`${d.timestamp}-${i}`}>
-              <line x1={x} x2={x} y1={yHigh} y2={yLow} stroke={color} strokeWidth={Math.max(0.8, g.candleWidth * 0.22)} />
-              <rect x={x - g.candleWidth / 2} y={bodyY} width={g.candleWidth} height={bodyH} fill={color} rx={0.6} />
+      <div className="chartSignalLegend">
+        <span><i className="signalDot buySignal"/> COMPRA del modelo</span>
+        <span><i className="signalDot sellSignal"/> VENTA del modelo</span>
+        <span className="studyLegend"><i className="studyLine sma20Line"/> SMA20</span>
+        <span className="studyLegend"><i className="studyLine sma50Line"/> SMA50</span>
+      </div>
+
+      <div className="candleCanvas" ref={wrapRef} onPointerMove={handlePointer} onPointerLeave={() => setHoverIndex(null)}>
+        <svg viewBox={`0 0 ${g.W} ${g.H}`} role="img" aria-label="Gráfico de velas BTC">
+          {yTicks.map((tick) => (
+            <g key={tick}>
+              <line x1={g.left} x2={g.W - g.right} y1={g.y(tick)} y2={g.y(tick)} stroke="#1d2a3c" strokeWidth="1" />
+              <text x={g.left - 9} y={g.y(tick) + 4} textAnchor="end" fill="#75849a" fontSize="12">{fmtPrice(tick)}</text>
             </g>
-          )
-        })}
+          ))}
 
-        {signalPoints.map((s, idx) => (
-          <circle key={`${s.side}-${idx}`} cx={g.x(s.i)} cy={g.y(s.price)} r="5.5" fill={s.side === 'BUY' ? '#22c55e' : '#ef4444'} stroke="#f8fafc" strokeWidth="1.5" />
-        ))}
+          {data.map((d, i) => {
+            const up = d.close >= d.open
+            const x = g.x(i)
+            const yOpen = g.y(d.open)
+            const yClose = g.y(d.close)
+            const yHigh = g.y(d.high)
+            const yLow = g.y(d.low)
+            const bodyY = Math.min(yOpen, yClose)
+            const bodyH = Math.max(1.2, Math.abs(yClose - yOpen))
+            const color = up ? '#22c55e' : '#ef4444'
+            return (
+              <g key={`${d.timestamp}-${i}`}>
+                <line x1={x} x2={x} y1={yHigh} y2={yLow} stroke={color} strokeWidth={Math.max(0.8, g.candleWidth * 0.22)} />
+                <rect x={x - g.candleWidth / 2} y={bodyY} width={g.candleWidth} height={bodyH} fill={color} rx={0.6} />
+              </g>
+            )
+          })}
 
-        {hoverIndex != null && <line x1={g.x(hoverIndex)} x2={g.x(hoverIndex)} y1={g.top} y2={g.H - g.bottom} stroke="#94a3b8" strokeDasharray="4 5" strokeOpacity="0.7" />}
+          <path d={linePath(studies.sma20)} fill="none" stroke="#38bdf8" strokeWidth="1.5" opacity="0.8" />
+          <path d={linePath(studies.sma50)} fill="none" stroke="#f59e0b" strokeWidth="1.5" opacity="0.8" />
 
-        {xTickIndexes.map((i) => (
-          <text key={i} x={g.x(i)} y={g.H - 10} textAnchor="middle" fill="#75849a" fontSize="12">{data[i]?.date}</text>
-        ))}
-      </svg>
+          {signalPoints.map((s, idx) => {
+            const candle = data[s.i]
+            const cy = s.side === 'BUY' ? g.y(candle.low) + 11 : g.y(candle.high) - 11
+            return (
+              <g key={`${s.side}-${idx}`}>
+                <circle cx={g.x(s.i)} cy={cy} r="8" fill={s.side === 'BUY' ? '#22c55e' : '#ef4444'} stroke="#ffffff" strokeWidth="2" />
+                <text x={g.x(s.i)} y={cy + 3.2} textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900">{s.side === 'BUY' ? 'B' : 'S'}</text>
+              </g>
+            )
+          })}
 
-      {hovered && (
-        <div className="candleTooltip">
-          <strong>{hovered.date}</strong>
-          <span>O {fmtPrice(hovered.open)}</span>
-          <span>H {fmtPrice(hovered.high)}</span>
-          <span>L {fmtPrice(hovered.low)}</span>
-          <span>C {fmtPrice(hovered.close)}</span>
-          <span>Vol {hovered.volume?.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
-        </div>
-      )}
+          {hoverIndex != null && <line x1={g.x(hoverIndex)} x2={g.x(hoverIndex)} y1={g.top} y2={g.H - g.bottom} stroke="#94a3b8" strokeDasharray="4 5" strokeOpacity="0.7" />}
+
+          {xTickIndexes.map((i) => (
+            <text key={i} x={g.x(i)} y={g.H - 10} textAnchor="middle" fill="#75849a" fontSize="12">{data[i]?.date}</text>
+          ))}
+        </svg>
+
+        {hoverIndex != null && hovered && (
+          <div className="candleTooltip">
+            <strong>{hovered.date}</strong>
+            <span>O {fmtPrice(hovered.open)}</span>
+            <span>H {fmtPrice(hovered.high)}</span>
+            <span>L {fmtPrice(hovered.low)}</span>
+            <span>C {fmtPrice(hovered.close)}</span>
+            <span>RSI {currentRsi == null ? '—' : currentRsi.toFixed(1)}</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -219,9 +304,9 @@ function App() {
   }, [chartHistory, indicators, coinId])
 
   const btcSignalsForChart = useMemo(() => {
-    if (!btcModel || candleInterval !== '1d') return []
+    if (!btcModel) return []
     return btcModel.chartSignals.map((s) => ({ ...s, timestamp: history[s.index]?.timestamp }))
-  }, [btcModel, candleInterval, history])
+  }, [btcModel, history])
 
   const change24 = snapshot?.price_change_percentage_24h || 0
   const actionClass = btcModel?.action === 'COMPRA' ? 'actionBuy' : btcModel?.action === 'VENTA' ? 'actionSell' : 'actionWait'
@@ -254,20 +339,20 @@ function App() {
           <section className="scoreGrid"><Gauge value={indicators.bottomScore} label="BOTTOM SCORE" subtitle={scoreLabel(indicators.bottomScore, 'bottom')} tone="green" /><Gauge value={indicators.trendScore} label="TREND SCORE" subtitle={scoreLabel(indicators.trendScore, 'trend')} tone="blue" /><div className="glass signalSummary"><span className="eyebrow">LECTURA OPERATIVA</span><h2>{indicators.bottomScore >= 65 && indicators.trendScore >= 60 ? 'Valor + tendencia convergen' : indicators.trendScore >= 65 ? 'Tendencia positiva; vigilar entrada' : indicators.bottomScore >= 65 ? 'Estrés alto; giro aún no confirmado' : 'Sin convergencia fuerte'}</h2><p>El indicador superior manda. Bottom y Trend quedan como diagnóstico para explicar la señal.</p><div className="miniStats"><div><span>{coinId === 'bitcoin' ? 'Máximo 2 años' : 'ATH'}</span><strong>{fmtPrice(snapshot?.ath)}</strong></div><div><span>Drawdown</span><strong>-{indicators.drawdown.toFixed(1)}%</strong></div><div><span>RSI</span><strong>{indicators.rsi?.toFixed(1)}</strong></div></div></div></section>
 
           <section className="chartCard glass">
-            <div className="sectionTitle chartHeader"><div><span className="eyebrow">GRÁFICO CONFIGURABLE</span><h2>{coinId === 'bitcoin' ? 'Velas BTC + señales' : 'Precio + tendencia'}</h2></div>{coinId === 'bitcoin' && <div className="chartMode"><CandleIcon size={16}/> {INTERVAL_LABELS[candleInterval]}</div>}</div>
+            <div className="sectionTitle chartHeader"><div><span className="eyebrow">GRÁFICO CONFIGURABLE</span><h2>{coinId === 'bitcoin' ? 'Velas BTC + señales del modelo' : 'Precio + tendencia'}</h2></div>{coinId === 'bitcoin' && <div className="chartMode"><CandleIcon size={16}/> {INTERVAL_LABELS[candleInterval]}</div>}</div>
             {coinId === 'bitcoin' && <div className="chartControls"><label><span>Desde</span><div className="dateShell"><input type="date" value={chartFrom} onChange={(e) => setChartFrom(e.target.value)} /></div></label><label><span>Hasta</span><div className="dateShell"><input type="date" value={chartTo} onChange={(e) => setChartTo(e.target.value)} /></div></label><label><span>Vela</span><select value={candleInterval} onChange={(e) => setCandleInterval(e.target.value)}><option value="1h">1 hora</option><option value="4h">4 horas</option><option value="1d">1 día</option><option value="1w">1 semana</option></select></label><button className="applyChartBtn" onClick={loadBtcChart} disabled={chartLoading}>{chartLoading ? 'Cargando…' : 'Aplicar'}</button></div>}
             {chartError && <div className="chartError">{chartError}</div>}
-            <div className="chartWrap candleWrap">{coinId === 'bitcoin' ? <CandleChart data={chartHistory} signals={btcSignalsForChart} /> : <ResponsiveContainer width="100%" height="100%"><AreaChart data={lineChartData} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}><CartesianGrid stroke="#1d2a3c" vertical={false} /><XAxis dataKey="date" tick={{ fill: '#7f8da3', fontSize: 11 }} minTickGap={65} axisLine={false} tickLine={false}/><YAxis domain={['auto', 'auto']} tickFormatter={(v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v.toFixed(2)}`} tick={{ fill: '#7f8da3', fontSize: 11 }} axisLine={false} tickLine={false} width={60}/><Tooltip contentStyle={{ background: '#0c1727', border: '1px solid #26374f', borderRadius: 12 }} labelStyle={{ color: '#a8b5c8' }} formatter={(v, name) => [fmtPrice(v), name === 'price' ? 'Precio' : name.toUpperCase()]}/><Area type="monotone" dataKey="price" stroke="#38bdf8" strokeWidth={2.3} fillOpacity={0.12} fill="#38bdf8" dot={false}/><Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 5" dot={false}/><Line type="monotone" dataKey="ma200" stroke="#22c55e" strokeWidth={1.6} strokeDasharray="7 6" dot={false}/></AreaChart></ResponsiveContainer>}</div>
-            {coinId === 'bitcoin' && <div className="chartFoot">{chartHistory.length.toLocaleString()} velas · {chartFrom} → {chartTo}{candleInterval === '1d' ? ' · puntos verdes/rojos = señales históricas del modelo' : ''}</div>}
+            <div className="chartWrap candleWrap">{coinId === 'bitcoin' ? <CandleChart data={chartHistory} signals={btcSignalsForChart} intervalLabel={INTERVAL_LABELS[candleInterval]} /> : <ResponsiveContainer width="100%" height="100%"><AreaChart data={lineChartData} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}><CartesianGrid stroke="#1d2a3c" vertical={false} /><XAxis dataKey="date" tick={{ fill: '#7f8da3', fontSize: 11 }} minTickGap={65} axisLine={false} tickLine={false}/><YAxis domain={['auto', 'auto']} tickFormatter={(v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v.toFixed(2)}`} tick={{ fill: '#7f8da3', fontSize: 11 }} axisLine={false} tickLine={false} width={60}/><Tooltip contentStyle={{ background: '#0c1727', border: '1px solid #26374f', borderRadius: 12 }} labelStyle={{ color: '#a8b5c8' }} formatter={(v, name) => [fmtPrice(v), name === 'price' ? 'Precio' : name.toUpperCase()]}/><Area type="monotone" dataKey="price" stroke="#38bdf8" strokeWidth={2.3} fillOpacity={0.12} fill="#38bdf8" dot={false}/><Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 5" dot={false}/><Line type="monotone" dataKey="ma200" stroke="#22c55e" strokeWidth={1.6} strokeDasharray="7 6" dot={false}/></AreaChart></ResponsiveContainer>}</div>
+            {coinId === 'bitcoin' && <div className="chartFoot">{chartHistory.length.toLocaleString()} velas · {chartFrom} → {chartTo} · B/S = señales históricas diarias del modelo, ubicadas sobre la vela que contiene esa fecha.</div>}
           </section>
 
           <section><div className="sectionTitle outside"><div><span className="eyebrow">DIAGNÓSTICO</span><h2>Indicadores actuales</h2></div><span className="hint">La señal final solo se activa con ventaja histórica suficiente</span></div><div className="indicatorsGrid">{indicators.rows.map((item) => <IndicatorCard key={item.label} item={item}/>)}</div></section>
-          <section className="marketStrip glass"><div><span>Fuente</span><strong>{snapshot.source || 'Mercado'}</strong></div><div><span>7 días</span><strong className={(snapshot.price_change_percentage_7d_in_currency || 0) >= 0 ? 'positive' : 'negative'}>{(snapshot.price_change_percentage_7d_in_currency || 0).toFixed(2)}%</strong></div><div><span>30 días</span><strong className={(snapshot.price_change_percentage_30d_in_currency || 0) >= 0 ? 'positive' : 'negative'}>{(snapshot.price_change_percentage_30d_in_currency || 0).toFixed(2)}%</strong></div><div><span>Modelo</span><strong>{coinId === 'bitcoin' ? 'V0.3 BTC' : 'V0.1'}</strong></div></section>
+          <section className="marketStrip glass"><div><span>Fuente</span><strong>{snapshot.source || 'Mercado'}</strong></div><div><span>7 días</span><strong className={(snapshot.price_change_percentage_7d_in_currency || 0) >= 0 ? 'positive' : 'negative'}>{(snapshot.price_change_percentage_7d_in_currency || 0).toFixed(2)}%</strong></div><div><span>30 días</span><strong className={(snapshot.price_change_percentage_30d_in_currency || 0) >= 0 ? 'positive' : 'negative'}>{(snapshot.price_change_percentage_30d_in_currency || 0).toFixed(2)}%</strong></div><div><span>Modelo</span><strong>{coinId === 'bitcoin' ? 'V0.4 BTC' : 'V0.1'}</strong></div></section>
         </>
       )}
 
       {!indicators && !error && <div className="loadingState">Construyendo radar de {coin.symbol}…</div>}
-      <footer>BTC V0.3 · modelo diario de 2 años + gráfico configurable de velas Binance.</footer>
+      <footer>BTC V0.4 · modelo diario de 2 años + velas configurables + señales históricas + indicadores por timeframe.</footer>
     </main>
   )
 }
