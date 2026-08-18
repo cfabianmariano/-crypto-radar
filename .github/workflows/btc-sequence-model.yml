@@ -1,0 +1,195 @@
+name: BTC Sequence Model Validation
+
+on:
+  push:
+    branches: [btc-backtest-experiment]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Run sequence-similarity model
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, math, statistics, urllib.request
+          from datetime import datetime, timezone
+
+          URL='https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000'
+          req=urllib.request.Request(URL,headers={'User-Agent':'crypto-radar-sequence/1.0'})
+          with urllib.request.urlopen(req,timeout=30) as r: raw=json.load(r)
+          raw=raw[-730:]
+          rows=[]
+          for x in raw:
+            rows.append({'date':datetime.fromtimestamp(int(x[0])/1000,tz=timezone.utc).strftime('%Y-%m-%d'),'open':float(x[1]),'high':float(x[2]),'low':float(x[3]),'close':float(x[4]),'volume':float(x[5])})
+          c=[r['close'] for r in rows]; v=[r['volume'] for r in rows]
+
+          def sma(a,n,i): return None if i<n-1 else sum(a[i-n+1:i+1])/n
+          def std(a,n,i):
+            if i<n-1:return None
+            return statistics.pstdev(a[i-n+1:i+1])
+          def rsi(i,n=14):
+            if i<n:return None
+            g=l=0.0
+            for j in range(i-n+1,i+1):
+              d=c[j]-c[j-1]; g+=max(d,0); l+=max(-d,0)
+            return 100.0 if l==0 else 100-100/(1+(g/n)/(l/n))
+          def atrp(i,n=14):
+            if i<n:return None
+            tr=[]
+            for j in range(i-n+1,i+1):
+              prev=c[j-1]
+              tr.append(max(rows[j]['high']-rows[j]['low'],abs(rows[j]['high']-prev),abs(rows[j]['low']-prev)))
+            return (sum(tr)/n)/c[i]
+          def zvol(i,n=20):
+            if i<n:return None
+            s=v[i-n:i]; sd=statistics.pstdev(s) or 1
+            return (v[i]-statistics.mean(s))/sd
+          def maxdd(i,n=20):
+            s=c[i-n+1:i+1]; peak=s[0]; m=0
+            for x in s:
+              peak=max(peak,x); m=min(m,x/peak-1)
+            return m
+          def runup(i,n=20):
+            s=c[i-n+1:i+1]; return c[i]/min(s)-1
+          def feats(i):
+            m20=sma(c,20,i); m50=sma(c,50,i); m200=sma(c,200,i); sd20=std(c,20,i)
+            ups=sum(1 for j in range(i-9,i+1) if c[j]>c[j-1])
+            return [
+              c[i]/c[i-3]-1,c[i]/c[i-7]-1,c[i]/c[i-14]-1,c[i]/c[i-30]-1,
+              rsi(i)/100.0,c[i]/m20-1,c[i]/m50-1,c[i]/m200-1,atrp(i),zvol(i)/3.0,
+              (4*sd20/m20),ups/10.0,maxdd(i,20),runup(i,20),
+              (rows[i]['high']-rows[i]['low'])/c[i],
+              (c[i]-rows[i]['low'])/(rows[i]['high']-rows[i]['low']) if rows[i]['high']>rows[i]['low'] else .5
+            ]
+
+          H=14
+          START=200
+          END=len(rows)-H
+          X={i:feats(i) for i in range(START,END)}
+          y={i:c[i+H]/c[i]-1 for i in range(START,END)}
+          split=int(START+(END-START)*0.70)
+
+          def predict(i,k,consensus,move_cut,exp_cut):
+            # Strict walk-forward: only neighbors whose 14d outcome was already known at day i.
+            hist=[j for j in range(START,i-H) if j in X]
+            if len(hist)<60:return None
+            # standardize dimensions using history available at i
+            dims=len(X[i]); means=[]; sds=[]
+            for d in range(dims):
+              vals=[X[j][d] for j in hist]
+              means.append(statistics.mean(vals)); sds.append(statistics.pstdev(vals) or 1e-9)
+            def dist(j):
+              return math.sqrt(sum(((X[i][d]-X[j][d])/sds[d])**2 for d in range(dims)))
+            nn=sorted(hist,key=dist)[:k]
+            rets=[y[j] for j in nn]
+            pup=sum(r>move_cut for r in rets)/len(rets)
+            pdn=sum(r<-move_cut for r in rets)/len(rets)
+            er=statistics.mean(rets)
+            if pup>=consensus and er>=exp_cut:return ('BUY',pup,pdn,er,nn)
+            if pdn>=consensus and er<=-exp_cut:return ('SELL',pup,pdn,er,nn)
+            return None
+
+          def eval_period(lo,hi,k,consensus,move_cut,exp_cut):
+            sig=[]
+            for i in range(lo,hi):
+              p=predict(i,k,consensus,move_cut,exp_cut)
+              if not p: continue
+              side,pup,pdn,er,nn=p
+              real=y[i]
+              correct=(real>0 if side=='BUY' else real<0)
+              meaningful=(real>move_cut if side=='BUY' else real<-move_cut)
+              sig.append((i,side,pup,pdn,er,real,correct,meaningful))
+            return sig
+
+          # Tune ONLY on first 70%. Require enough signals, reward precision but penalize vanishing coverage.
+          grid=[]
+          for k in (7,11,15,21,31):
+            for consensus in (0.60,0.65,0.70,0.75):
+              for move_cut in (0.02,0.03,0.05):
+                for exp_cut in (0.005,0.01,0.02):
+                  sig=eval_period(START+90,split,k,consensus,move_cut,exp_cut)
+                  if len(sig)<10: continue
+                  hit=sum(s[6] for s in sig)/len(sig)
+                  mhit=sum(s[7] for s in sig)/len(sig)
+                  # emphasize directional precision and meaningful-move precision, mild coverage bonus capped
+                  score=0.55*hit+0.35*mhit+0.10*min(len(sig)/25,1)
+                  grid.append((score,k,consensus,move_cut,exp_cut,len(sig),hit,mhit))
+          grid.sort(reverse=True)
+          best=grid[0]
+          _,k,consensus,move_cut,exp_cut,ntr,htr,mhtr=best
+
+          train=eval_period(START+90,split,k,consensus,move_cut,exp_cut)
+          test=eval_period(split,END,k,consensus,move_cut,exp_cut)
+          full=eval_period(START+90,END,k,consensus,move_cut,exp_cut)
+
+          def stats(sig):
+            if not sig:return {}
+            buys=[s for s in sig if s[1]=='BUY']; sells=[s for s in sig if s[1]=='SELL']
+            return {
+              'n':len(sig),
+              'hit':sum(s[6] for s in sig)/len(sig),
+              'mhit':sum(s[7] for s in sig)/len(sig),
+              'buy_n':len(buys),'buy_hit':sum(s[6] for s in buys)/len(buys) if buys else None,
+              'sell_n':len(sells),'sell_hit':sum(s[6] for s in sells)/len(sells) if sells else None,
+              'avg_signed':statistics.mean((s[5] if s[1]=='BUY' else -s[5]) for s in sig),
+              'med_signed':statistics.median((s[5] if s[1]=='BUY' else -s[5]) for s in sig)
+            }
+
+          st,ss,sf=stats(train),stats(test),stats(full)
+          # baseline positive frequency in test
+          base=[y[i] for i in range(split,END)]
+          base_up=sum(r>0 for r in base)/len(base)
+          base_dn=1-base_up
+
+          # Current prediction uses only known past outcomes; can use latest day even though its future unknown.
+          cur_i=len(rows)-1
+          # build current feature separately; historical library only through dates whose outcomes are known
+          X[cur_i]=feats(cur_i)
+          pcur=predict(cur_i,k,consensus,move_cut,exp_cut)
+
+          lines=[]
+          lines.append('BTC SEQUENCE-SIMILARITY MODEL — STRICT WALK-FORWARD VALIDATION')
+          lines.append(f"Window: {rows[0]['date']} to {rows[-1]['date']} | prediction horizon={H}d")
+          lines.append('Feature set describes the preceding path: 3/7/14/30d returns, RSI, distance to MA20/50/200, ATR, volume surprise, compression, up-day count, drawdown/run-up, candle range and close location.')
+          lines.append('No future information is used for a historical prediction. Hyperparameters are selected on the first 70% only; the final 30% is untouched holdout data.')
+          lines.append(f'Frozen model: k={k}, consensus={consensus:.2f}, meaningful_move={move_cut*100:.1f}%, expected_return_cut={exp_cut*100:.1f}%')
+          lines.append('')
+          def add(label,s):
+            lines.append(label)
+            lines.append(f"  signals={s.get('n',0)} | directional_hit={s.get('hit',0)*100:.1f}% | meaningful_hit={s.get('mhit',0)*100:.1f}%")
+            lines.append(f"  BUY: N={s.get('buy_n',0)} hit={(s.get('buy_hit')*100 if s.get('buy_hit') is not None else float('nan')):.1f}%")
+            lines.append(f"  SELL: N={s.get('sell_n',0)} hit={(s.get('sell_hit')*100 if s.get('sell_hit') is not None else float('nan')):.1f}%")
+            lines.append(f"  avg_signed_14d_return={s.get('avg_signed',0)*100:+.2f}% | median={s.get('med_signed',0)*100:+.2f}%")
+            lines.append('')
+          add('TRAIN/CALIBRATION (first 70%)',st)
+          add('HOLDOUT/UNSEEN (last 30%)',ss)
+          add('FULL WALK-FORWARD RECORD',sf)
+          lines.append(f'HOLDOUT BASELINE: unconditional P(up)={base_up*100:.1f}% / P(down)={base_dn*100:.1f}%')
+          lines.append('')
+          lines.append('HOLDOUT SIGNALS')
+          for s in test:
+            i,side,pup,pdn,er,real,correct,meaningful=s
+            lines.append(f"{rows[i]['date']} {side} modelP_up={pup*100:.0f}% modelP_down={pdn*100:.0f}% neighExp={er*100:+.1f}% -> actual14d={real*100:+.1f}% {'HIT' if correct else 'MISS'} {'MEANINGFUL' if meaningful else ''}")
+          lines.append('')
+          if pcur:
+            side,pup,pdn,er,nn=pcur
+            lines.append(f"CURRENT {rows[cur_i]['date']}: {side} | neighbor P(up>{move_cut*100:.0f}%)={pup*100:.0f}% P(down<-{move_cut*100:.0f}%)={pdn*100:.0f}% expected14d={er*100:+.1f}% | close=${c[cur_i]:,.2f}")
+          else:
+            lines.append(f"CURRENT {rows[cur_i]['date']}: NO HIGH-CONVICTION SIGNAL | close=${c[cur_i]:,.2f}")
+          open('/tmp/sequence_validation.txt','w').write('\n'.join(lines)+'\n')
+          print(open('/tmp/sequence_validation.txt').read())
+          PY
+      - uses: actions/checkout@v4
+      - name: Store validation result
+        shell: bash
+        run: |
+          cp /tmp/sequence_validation.txt btc_sequence_validation.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add btc_sequence_validation.txt
+          git diff --cached --quiet || git commit -m 'Store BTC sequence validation [skip ci]'
+          git push
