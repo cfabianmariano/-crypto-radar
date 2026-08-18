@@ -1,0 +1,39 @@
+BTC SIGNAL ENGINE — 2 YEAR TECHNICAL PROTOTYPE
+Window: 2024-08-19 to 2026-08-18 | candles=730 | source=Binance BTCUSDT spot daily
+Signals are distinct events, deduplicated with 7-day cooldown. No look-ahead is used in indicator calculation.
+This run is TECHNICAL ONLY; fundamental/on-chain inputs are not yet included.
+Distinct signals: 66
+
+HORIZON 7d
+  N=65 | directional_hit=52.3% | meaningful_hit(>1.5%)=40.0%
+  avg_signed_return=+0.23% | median_signed_return=+0.37%
+  BUY_hit=56.0% N=25 | SELL_hit=50.0% N=40
+  always_long_positive_baseline=51.2%
+
+HORIZON 30d
+  N=61 | directional_hit=52.5% | meaningful_hit(>3.0%)=41.0%
+  avg_signed_return=+1.94% | median_signed_return=+0.88%
+  BUY_hit=52.0% N=25 | SELL_hit=52.8% N=36
+  always_long_positive_baseline=50.8%
+
+HORIZON 90d
+  N=52 | directional_hit=61.5% | meaningful_hit(>5.0%)=51.9%
+  avg_signed_return=+2.76% | median_signed_return=+7.01%
+  BUY_hit=52.0% N=25 | SELL_hit=70.4% N=27
+  always_long_positive_baseline=35.7%
+
+LATEST: 2026-08-18 close=$64,090.00 score=-31.1 signal=NEUTRAL RSI14=49.9 vsMA200=-7.2%
+
+LAST 12 DISTINCT SIGNALS
+2026-06-02 SELL score=-75.3 price=$66,761 | 7d=+7.5% | 30d=+7.8% | 90d=pending
+2026-06-09 SELL score=-80.0 price=$61,730 | 7d=-6.4% | 30d=-2.4% | 90d=pending
+2026-06-16 SELL score=-45.2 price=$65,675 | 7d=+4.5% | 30d=+2.8% | 90d=pending
+2026-06-23 SELL score=-39.7 price=$62,735 | 7d=+6.6% | 30d=-3.8% | 90d=pending
+2026-06-30 SELL score=-74.1 price=$58,625 | 7d=-8.1% | 30d=-10.5% | 90d=pending
+2026-07-07 SELL score=-40.1 price=$63,364 | 7d=-2.7% | 30d=-1.5% | 90d=pending
+2026-07-13 SELL score=-40.9 price=$62,335 | 7d=-4.7% | 30d=-1.8% | 90d=pending
+2026-07-24 SELL score=-38.1 price=$64,140 | 7d=+2.0% | 30d=pending | 90d=pending
+2026-07-27 SELL score=-36.7 price=$63,756 | 7d=+0.4% | 30d=pending | 90d=pending
+2026-07-31 SELL score=-51.7 price=$62,888 | 7d=-3.2% | 30d=pending | 90d=pending
+2026-08-11 SELL score=-36.0 price=$63,600 | 7d=-0.8% | 30d=pending | 90d=pending
+2026-08-16 SELL score=-36.5 price=$62,900 | 7d=pending | 30d=pending | 90d=pending
