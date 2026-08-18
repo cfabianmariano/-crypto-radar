@@ -7,31 +7,78 @@
 .dateShell input { display:block; width:100%; min-width:0; border:0; padding:0; background:transparent; color:#eef6ff; font:inherit; color-scheme:dark; outline:none; }
 .autoLoading { color:#8ba0b8; font-size:11px; padding:0 3px 11px; white-space:nowrap; }
 .chartError { margin-top:12px; border:1px solid #713a45; background:#2a1218; color:#fecdd3; padding:10px 12px; border-radius:10px; font-size:12px; }
-.simpleChartCard { padding-bottom:16px; }
-.candleWrap { height:auto; min-height:340px; margin-top:8px; }
+.simpleChartCard { padding-bottom:18px; }
+.candleWrap { height:auto; min-height:520px; margin-top:10px; }
 .simpleCandleBlock { margin-top:8px; }
-.simpleLegend { display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin:0 0 8px; color:#b2bfd0; font-size:12px; }
+.chartToolbar { display:flex; justify-content:space-between; gap:14px; align-items:center; margin-bottom:6px; }
+.simpleLegend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; color:#b2bfd0; font-size:12px; }
 .simpleLegend span { display:flex; align-items:center; gap:7px; }
-.gestureHint { color:#73859d; margin-left:auto; font-size:11px; }
 .legendBadge { display:inline-grid; place-items:center; width:24px; height:24px; border-radius:50%; color:white; font-size:11px; line-height:1; border:2px solid white; }
 .buyBadge { background:#16a34a; }
 .sellBadge { background:#dc2626; }
-.candleCanvas { position:relative; width:100%; min-height:330px; user-select:none; }
+.chartActions { display:flex; gap:8px; align-items:center; }
+.toolBtn { display:flex; align-items:center; gap:6px; border:1px solid #2a3d57; background:#0c1727; color:#aebfd2; border-radius:9px; padding:8px 10px; font-size:11px; cursor:pointer; }
+.toolBtn.active { border-color:#3b82f6; background:#102540; color:#dbeafe; }
+.trendLegend { display:flex; gap:16px; color:#8497af; font-size:10px; margin:4px 0 2px; }
+.trendLegend span { display:flex; align-items:center; gap:6px; }
+.trendLine { display:inline-block; width:20px; height:2px; }
+.trendLine.ma50 { background:#f59e0b; }
+.trendLine.ma200 { background:#38bdf8; }
+.gestureHint { color:#73859d; font-size:10px; margin:4px 0 6px; }
+.candleCanvas { position:relative; width:100%; min-height:500px; user-select:none; }
 .interactiveChart { touch-action:none; cursor:grab; }
 .interactiveChart:active { cursor:grabbing; }
-.candleCanvas svg { display:block; width:100%; height:auto; min-height:300px; overflow:visible; }
-.candleTooltip { position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:3px; min-width:165px; padding:10px 12px; border:1px solid #2a3d57; border-radius:10px; background:rgba(8,18,31,.95); color:#cbd5e1; font-size:11px; pointer-events:none; }
+.candleCanvas svg { display:block; width:100%; height:auto; min-height:490px; overflow:visible; }
+.candleTooltip { position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:3px; min-width:180px; padding:10px 12px; border:1px solid #2a3d57; border-radius:10px; background:rgba(8,18,31,.96); color:#cbd5e1; font-size:11px; pointer-events:none; }
 .candleTooltip strong { color:#f8fafc; font-size:12px; margin-bottom:3px; }
-.resetZoomBtn { display:block; margin:4px auto 0; border:1px solid #263850; background:#0d1b2d; color:#b8c6d8; border-radius:9px; padding:7px 11px; font-size:11px; cursor:pointer; }
-.simpleFoot { text-align:center; color:#8ca0b8; font-size:12px; margin-top:2px; }
-.chartEmpty { min-height:300px; display:grid; place-items:center; color:#7f8fa7; }
-.simpleDecisionMetrics { grid-template-columns:1fr 1fr; }
-.simpleDecisionMetrics div { min-height:100px; }
+.resetZoomBtn { display:block; margin:6px auto 0; border:1px solid #263850; background:#0d1b2d; color:#b8c6d8; border-radius:9px; padding:7px 11px; font-size:11px; cursor:pointer; }
+.simpleFoot { text-align:center; color:#8ca0b8; font-size:12px; margin-top:3px; }
+.chartEmpty { min-height:420px; display:grid; place-items:center; color:#7f8fa7; }
+
+.chartExpanded { position:fixed; inset:0; z-index:9999; background:#07111f; padding:12px 16px 18px; overflow:auto; }
+.chartExpanded .candleCanvas { min-height:calc(100vh - 135px); }
+.chartExpanded .candleCanvas svg { min-height:calc(100vh - 145px); max-height:calc(100vh - 120px); }
+.chartOverlayOpen { overflow:hidden; }
+.landscapeHint { color:#71829a; font-size:10px; text-align:center; margin-top:3px; }
+
+.visualHero { position:relative; overflow:hidden; }
+.visualHero::after { content:""; position:absolute; width:220px; height:220px; border-radius:50%; right:-60px; top:-80px; background:radial-gradient(circle,rgba(56,189,248,.12),transparent 68%); pointer-events:none; }
+.visualDecision { align-items:center; }
+.signalMeter { position:relative; display:grid; grid-template-columns:1fr 1fr; height:32px; border-radius:999px; overflow:hidden; margin:14px 0 12px; background:linear-gradient(90deg,rgba(239,68,68,.35),rgba(245,158,11,.16) 48%,rgba(34,197,94,.35)); border:1px solid #26374f; }
+.signalMeter span { display:flex; align-items:center; padding:0 12px; color:#98a9bf; font-size:9px; font-weight:800; letter-spacing:.08em; }
+.buyZone { justify-content:flex-end; }
+.meterNeedle { position:absolute; top:3px; bottom:3px; width:5px; border-radius:5px; background:#fff; box-shadow:0 0 12px rgba(255,255,255,.75); left:50%; transition:left .25s ease; }
+.meterNeedle.compra { left:82%; }
+.meterNeedle.venta { left:18%; }
+.meterNeedle.esperar { left:50%; }
+.ringGrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.ringStat { display:flex; align-items:center; gap:12px; background:#091524; border:1px solid #203149; border-radius:16px; padding:14px; min-width:0; }
+.ring { --ring:0deg; width:90px; min-width:90px; aspect-ratio:1; border-radius:50%; display:grid; place-items:center; position:relative; background:conic-gradient(from -90deg,#22c55e var(--ring),#172335 0); }
+.ring.sell { background:conic-gradient(from -90deg,#ef4444 var(--ring),#172335 0); }
+.ring::after { content:""; position:absolute; inset:9px; border-radius:50%; background:#091321; border:1px solid #203149; }
+.ring > div { position:relative; z-index:1; text-align:center; }
+.ring strong { display:block; font-size:22px; line-height:1; }
+.ring span { display:block; color:#71829a; font-size:8px; margin-top:4px; text-transform:uppercase; }
+.ringText { display:flex; flex-direction:column; min-width:0; }
+.ringText b { font-size:14px; }
+.ringText small { color:#74859b; font-size:9px; margin-top:4px; }
+.restoredScores { margin-top:18px; }
+.compactSummary { display:flex; flex-direction:column; justify-content:center; }
+.expandedStats { grid-template-columns:repeat(2,1fr); margin-top:4px; }
+.expandedStats strong { font-size:18px; }
+
+@media (max-width: 900px) {
+  .visualDecision { grid-template-columns:1fr; }
+  .ringGrid { grid-template-columns:1fr 1fr; }
+}
 
 @media (max-width: 760px) {
   .chartControls { grid-template-columns:1fr 1fr; }
   .chartMode { font-size:11px; }
   .autoLoading { padding-bottom:8px; }
+  .candleWrap { min-height:480px; }
+  .candleCanvas { min-height:455px; }
+  .candleCanvas svg { min-height:445px; }
 }
 
 @media (max-width: 520px) {
@@ -39,11 +86,30 @@
   .chartControls label { grid-column:1; }
   .chartHeader { align-items:flex-start; }
   .chartMode { margin-top:2px; }
+  .chartToolbar { align-items:flex-start; flex-direction:column; }
+  .chartActions { width:100%; }
+  .toolBtn { flex:1; justify-content:center; }
   .simpleLegend { gap:12px; font-size:11px; }
-  .gestureHint { width:100%; margin-left:0; font-size:10px; }
   .legendBadge { width:22px; height:22px; }
-  .candleCanvas { min-height:300px; }
-  .candleCanvas svg { min-height:285px; }
-  .candleTooltip { top:8px; right:8px; min-width:150px; padding:8px 10px; font-size:10px; }
+  .gestureHint { font-size:9px; }
+  .candleWrap { min-height:460px; }
+  .candleCanvas { min-height:440px; }
+  .candleCanvas svg { min-height:430px; }
+  .candleTooltip { top:8px; right:8px; min-width:155px; padding:8px 10px; font-size:10px; }
   .autoLoading { padding:0; }
+  .ringGrid { grid-template-columns:1fr 1fr; gap:8px; }
+  .ringStat { flex-direction:column; text-align:center; padding:10px 6px; gap:7px; }
+  .ring { width:76px; min-width:76px; }
+  .ring strong { font-size:18px; }
+  .ringText b { font-size:12px; }
+  .expandedStats { grid-template-columns:1fr 1fr; }
+  .chartExpanded { padding:8px; }
+}
+
+@media (orientation: landscape) and (max-height: 600px) {
+  .chartExpanded { padding:6px 10px; }
+  .chartExpanded .chartToolbar { margin-bottom:2px; }
+  .chartExpanded .gestureHint, .chartExpanded .trendLegend, .chartExpanded .landscapeHint { display:none; }
+  .chartExpanded .candleCanvas { min-height:calc(100vh - 70px); }
+  .chartExpanded .candleCanvas svg { min-height:calc(100vh - 76px); max-height:calc(100vh - 60px); }
 }
