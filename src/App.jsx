@@ -23,15 +23,29 @@ const fmtPrice = (n) => {
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 6 })}`
 }
 
-const pct = (n) => n == null ? '—' : `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`
 const toInputDate = (date) => date.toISOString().slice(0, 10)
 
 function CandleChart({ data, signals = [] }) {
   const wrapRef = useRef(null)
+  const dragRef = useRef(null)
+  const touchRef = useRef(null)
   const [hoverIndex, setHoverIndex] = useState(null)
+  const [viewStart, setViewStart] = useState(0)
+  const [viewEnd, setViewEnd] = useState(Math.max(0, data.length - 1))
+
+  useEffect(() => {
+    setViewStart(0)
+    setViewEnd(Math.max(0, data.length - 1))
+    setHoverIndex(null)
+  }, [data])
+
+  const visibleData = useMemo(() => {
+    if (!data.length) return []
+    return data.slice(viewStart, viewEnd + 1)
+  }, [data, viewStart, viewEnd])
 
   const geometry = useMemo(() => {
-    if (!data.length) return null
+    if (!visibleData.length) return null
     const W = 1000
     const H = 420
     const left = 70
@@ -40,52 +54,164 @@ function CandleChart({ data, signals = [] }) {
     const bottom = 40
     const plotW = W - left - right
     const plotH = H - top - bottom
-    const min = Math.min(...data.map((d) => d.low))
-    const max = Math.max(...data.map((d) => d.high))
+    const min = Math.min(...visibleData.map((d) => d.low))
+    const max = Math.max(...visibleData.map((d) => d.high))
     const pad = Math.max((max - min) * 0.05, max * 0.002)
     const yMin = min - pad
     const yMax = max + pad
     const y = (v) => top + ((yMax - v) / (yMax - yMin || 1)) * plotH
-    const x = (i) => left + ((i + 0.5) / data.length) * plotW
-    const candleWidth = Math.min(11, Math.max(1.5, (plotW / data.length) * 0.66))
+    const x = (i) => left + ((i + 0.5) / visibleData.length) * plotW
+    const candleWidth = Math.min(15, Math.max(1.5, (plotW / visibleData.length) * 0.66))
     return { W, H, left, right, top, bottom, plotW, plotH, yMin, yMax, y, x, candleWidth }
-  }, [data])
+  }, [visibleData])
+
+  const setWindow = (start, end) => {
+    if (!data.length) return
+    const minBars = Math.min(8, data.length)
+    let s = Math.round(start)
+    let e = Math.round(end)
+    if (e - s + 1 < minBars) e = s + minBars - 1
+    if (s < 0) { e -= s; s = 0 }
+    if (e > data.length - 1) { s -= e - (data.length - 1); e = data.length - 1 }
+    s = Math.max(0, s)
+    e = Math.min(data.length - 1, e)
+    setViewStart(s)
+    setViewEnd(e)
+  }
+
+  const zoomAt = (factor, ratio = 0.5) => {
+    const size = viewEnd - viewStart + 1
+    const newSize = Math.max(Math.min(8, data.length), Math.min(data.length, Math.round(size * factor)))
+    const anchor = viewStart + ratio * (size - 1)
+    const nextStart = anchor - ratio * (newSize - 1)
+    setWindow(nextStart, nextStart + newSize - 1)
+  }
+
+  const panBars = (bars) => {
+    const size = viewEnd - viewStart
+    setWindow(viewStart + bars, viewStart + bars + size)
+  }
 
   if (!geometry) return <div className="chartEmpty">Sin datos para este período.</div>
 
   const g = geometry
   const yTicks = Array.from({ length: 5 }, (_, i) => g.yMin + ((g.yMax - g.yMin) * i) / 4)
-  const xTickIndexes = Array.from(new Set([0, Math.floor((data.length - 1) * .25), Math.floor((data.length - 1) * .5), Math.floor((data.length - 1) * .75), data.length - 1]))
-  const hovered = hoverIndex == null ? null : data[hoverIndex]
+  const xTickIndexes = Array.from(new Set([0, Math.floor((visibleData.length - 1) * .25), Math.floor((visibleData.length - 1) * .5), Math.floor((visibleData.length - 1) * .75), visibleData.length - 1]))
+  const hovered = hoverIndex == null ? null : visibleData[hoverIndex]
 
   const signalPoints = signals.map((s) => {
     const targetTs = s.timestamp
-    if (!targetTs || targetTs < data[0].timestamp || targetTs > data[data.length - 1].timestamp + 7 * DAY) return null
+    if (!targetTs || !visibleData.length || targetTs < visibleData[0].timestamp || targetTs > visibleData[visibleData.length - 1].timestamp + 7 * DAY) return null
     let best = 0
-    let bestDiff = Math.abs(data[0].timestamp - targetTs)
-    for (let i = 1; i < data.length; i++) {
-      const diff = Math.abs(data[i].timestamp - targetTs)
+    let bestDiff = Math.abs(visibleData[0].timestamp - targetTs)
+    for (let i = 1; i < visibleData.length; i++) {
+      const diff = Math.abs(visibleData[i].timestamp - targetTs)
       if (diff < bestDiff) { best = i; bestDiff = diff }
     }
     return { ...s, i: best }
   }).filter(Boolean)
 
-  const handlePointer = (event) => {
+  const pointerToIndex = (clientX) => {
+    const rect = wrapRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    const px = ((clientX - rect.left) / rect.width) * g.W
+    const ratio = (px - g.left) / g.plotW
+    return Math.max(0, Math.min(visibleData.length - 1, Math.floor(ratio * visibleData.length)))
+  }
+
+  const handlePointerDown = (event) => {
+    if (event.pointerType === 'touch') return
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    dragRef.current = { x: event.clientX, start: viewStart, end: viewEnd, moved: false }
+  }
+
+  const handlePointerMove = (event) => {
+    if (event.pointerType === 'touch') return
+    if (dragRef.current) {
+      const rect = wrapRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const dx = event.clientX - dragRef.current.x
+      if (Math.abs(dx) > 3) dragRef.current.moved = true
+      const bars = Math.round((-dx / rect.width) * (dragRef.current.end - dragRef.current.start + 1))
+      const size = dragRef.current.end - dragRef.current.start
+      setWindow(dragRef.current.start + bars, dragRef.current.start + bars + size)
+      return
+    }
+    const i = pointerToIndex(event.clientX)
+    if (i != null) setHoverIndex(i)
+  }
+
+  const handlePointerUp = () => { dragRef.current = null }
+
+  const handleWheel = (event) => {
+    event.preventDefault()
     const rect = wrapRef.current?.getBoundingClientRect()
     if (!rect) return
-    const px = ((event.clientX - rect.left) / rect.width) * g.W
-    const ratio = (px - g.left) / g.plotW
-    setHoverIndex(Math.max(0, Math.min(data.length - 1, Math.floor(ratio * data.length))))
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+    zoomAt(event.deltaY > 0 ? 1.22 : 0.82, ratio)
   }
+
+  const handleTouchStart = (event) => {
+    if (event.touches.length === 2) {
+      const [a, b] = event.touches
+      touchRef.current = {
+        type: 'pinch',
+        distance: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+        start: viewStart,
+        end: viewEnd,
+      }
+    } else if (event.touches.length === 1) {
+      touchRef.current = { type: 'pan', x: event.touches[0].clientX, start: viewStart, end: viewEnd }
+    }
+  }
+
+  const handleTouchMove = (event) => {
+    const state = touchRef.current
+    if (!state) return
+    if (state.type === 'pinch' && event.touches.length === 2) {
+      event.preventDefault()
+      const [a, b] = event.touches
+      const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY)
+      const factor = state.distance / Math.max(distance, 1)
+      const oldSize = state.end - state.start + 1
+      const newSize = Math.max(Math.min(8, data.length), Math.min(data.length, Math.round(oldSize * factor)))
+      const center = (state.start + state.end) / 2
+      setWindow(center - (newSize - 1) / 2, center + (newSize - 1) / 2)
+    } else if (state.type === 'pan' && event.touches.length === 1) {
+      event.preventDefault()
+      const rect = wrapRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const dx = event.touches[0].clientX - state.x
+      const bars = Math.round((-dx / rect.width) * (state.end - state.start + 1))
+      const size = state.end - state.start
+      setWindow(state.start + bars, state.start + bars + size)
+    }
+  }
+
+  const resetZoom = () => setWindow(0, data.length - 1)
 
   return (
     <div className="simpleCandleBlock">
       <div className="simpleLegend">
         <span><b className="legendBadge buyBadge">B</b> Comprar</span>
         <span><b className="legendBadge sellBadge">S</b> Vender</span>
+        <span className="gestureHint">Arrastrá para mover · pellizcá/rueda para zoom</span>
       </div>
 
-      <div className="candleCanvas" ref={wrapRef} onPointerMove={handlePointer} onPointerLeave={() => setHoverIndex(null)}>
+      <div
+        className="candleCanvas interactiveChart"
+        ref={wrapRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={() => { setHoverIndex(null); dragRef.current = null }}
+        onWheel={handleWheel}
+        onDoubleClick={resetZoom}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={() => { touchRef.current = null }}
+      >
         <svg viewBox={`0 0 ${g.W} ${g.H}`} role="img" aria-label="Gráfico de velas BTC">
           {yTicks.map((tick) => (
             <g key={tick}>
@@ -94,7 +220,7 @@ function CandleChart({ data, signals = [] }) {
             </g>
           ))}
 
-          {data.map((d, i) => {
+          {visibleData.map((d, i) => {
             const up = d.close >= d.open
             const x = g.x(i)
             const yOpen = g.y(d.open)
@@ -113,7 +239,7 @@ function CandleChart({ data, signals = [] }) {
           })}
 
           {signalPoints.map((s, idx) => {
-            const candle = data[s.i]
+            const candle = visibleData[s.i]
             const cy = s.side === 'BUY' ? g.y(candle.low) + 15 : g.y(candle.high) - 15
             const fill = s.side === 'BUY' ? '#16a34a' : '#dc2626'
             return (
@@ -125,7 +251,7 @@ function CandleChart({ data, signals = [] }) {
           })}
 
           {hoverIndex != null && <line x1={g.x(hoverIndex)} x2={g.x(hoverIndex)} y1={g.top} y2={g.H - g.bottom} stroke="#94a3b8" strokeDasharray="4 5" strokeOpacity=".65" />}
-          {xTickIndexes.map((i) => <text key={i} x={g.x(i)} y={g.H - 10} textAnchor="middle" fill="#75849a" fontSize="12">{data[i]?.date}</text>)}
+          {xTickIndexes.map((i) => <text key={i} x={g.x(i)} y={g.H - 10} textAnchor="middle" fill="#75849a" fontSize="12">{visibleData[i]?.date}</text>)}
         </svg>
 
         {hovered && (
@@ -138,6 +264,7 @@ function CandleChart({ data, signals = [] }) {
           </div>
         )}
       </div>
+      {(viewStart > 0 || viewEnd < data.length - 1) && <button className="resetZoomBtn" onClick={resetZoom}>Ver período completo</button>}
     </div>
   )
 }
@@ -159,6 +286,7 @@ function App() {
   const [chartTo, setChartTo] = useState(toInputDate(today))
   const [candleInterval, setCandleInterval] = useState('1d')
   const requestId = useRef(0)
+  const chartRequestId = useRef(0)
 
   const coin = COINS.find((c) => c.id === coinId) || COINS[0]
 
@@ -184,6 +312,7 @@ function App() {
 
   async function loadBtcChart() {
     if (coinId !== 'bitcoin') return
+    const myRequest = ++chartRequestId.current
     setChartLoading(true)
     setChartError('')
     try {
@@ -194,12 +323,13 @@ function App() {
       const maxDays = MAX_RANGE_DAYS[candleInterval]
       if (rangeDays > maxDays) throw new Error(`${INTERVAL_LABELS[candleInterval]} admite hasta ${maxDays} días`)
       const candles = await fetchBtcCandles({ interval: candleInterval, startTime, endTime, maxCandles: 6000 })
+      if (myRequest !== chartRequestId.current) return
       if (!candles.length) throw new Error('No hay datos en ese rango')
       setChartHistory(candles)
     } catch (e) {
-      setChartError(e.message || 'No se pudo cargar el gráfico')
+      if (myRequest === chartRequestId.current) setChartError(e.message || 'No se pudo cargar el gráfico')
     } finally {
-      setChartLoading(false)
+      if (myRequest === chartRequestId.current) setChartLoading(false)
     }
   }
 
@@ -213,8 +343,10 @@ function App() {
   }, [coinId])
 
   useEffect(() => {
-    if (coinId === 'bitcoin') loadBtcChart()
-  }, [coinId])
+    if (coinId !== 'bitcoin') return
+    const timer = setTimeout(loadBtcChart, 350)
+    return () => clearTimeout(timer)
+  }, [coinId, chartFrom, chartTo, candleInterval])
 
   const indicators = useMemo(() => {
     if (!snapshot || history.length < 30) return null
@@ -278,7 +410,7 @@ function App() {
                 <label><span>Desde</span><div className="dateShell"><input type="date" value={chartFrom} onChange={(e) => setChartFrom(e.target.value)} /></div></label>
                 <label><span>Hasta</span><div className="dateShell"><input type="date" value={chartTo} onChange={(e) => setChartTo(e.target.value)} /></div></label>
                 <label><span>Velas</span><select value={candleInterval} onChange={(e) => setCandleInterval(e.target.value)}><option value="1h">1 hora</option><option value="4h">4 horas</option><option value="1d">1 día</option><option value="1w">1 semana</option></select></label>
-                <button className="applyChartBtn" onClick={loadBtcChart} disabled={chartLoading}>{chartLoading ? 'Cargando…' : 'Aplicar'}</button>
+                {chartLoading && <span className="autoLoading">Actualizando…</span>}
               </div>
             )}
 
@@ -303,7 +435,7 @@ function App() {
       )}
 
       {!indicators && !error && <div className="loadingState">Construyendo radar de {coin.symbol}…</div>}
-      <footer>BTC V0.5 · señal, efectividad y gráfico.</footer>
+      <footer>BTC V0.6 · señal, efectividad y gráfico interactivo.</footer>
     </main>
   )
 }
