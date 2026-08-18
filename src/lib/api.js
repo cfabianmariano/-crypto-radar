@@ -7,12 +7,14 @@ async function getJSON(url) {
   return response.json()
 }
 
-function mapKline(x) {
+function mapKline(x, interval) {
+  const ts = Number(x[0])
+  const intraday = interval === '1h' || interval === '4h'
   return {
-    timestamp: Number(x[0]),
-    date: new Date(Number(x[0])).toLocaleDateString('es-US', {
-      month: 'short', day: 'numeric', year: '2-digit',
-    }),
+    timestamp: ts,
+    date: intraday
+      ? new Date(ts).toLocaleString('es-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : new Date(ts).toLocaleDateString('es-US', { month: 'short', day: 'numeric', year: '2-digit' }),
     open: Number(x[1]),
     high: Number(x[2]),
     low: Number(x[3]),
@@ -41,7 +43,7 @@ export async function fetchBtcCandles({ interval = '1d', startTime, endTime, max
 
     for (const row of rows) {
       if (result.length >= maxCandles) break
-      result.push(mapKline(row))
+      result.push(mapKline(row, interval))
     }
 
     const lastOpenTime = Number(rows[rows.length - 1][0])
