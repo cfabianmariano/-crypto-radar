@@ -1,0 +1,125 @@
+name: BTC Fundamental Event Study
+on:
+  push:
+    branches: [btc-backtest-experiment]
+  workflow_dispatch:
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Run event-conditioned BTC study
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, statistics, subprocess
+          from datetime import datetime, timezone
+
+          URL='https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000'
+          req=urllib.request.Request(URL,headers={'User-Agent':'crypto-radar-fundamental-study/1.0'})
+          with urllib.request.urlopen(req,timeout=30) as r: raw=json.load(r)
+          raw=raw[-730:]
+          rows=[]
+          for x in raw:
+            rows.append({'date':datetime.fromtimestamp(int(x[0])/1000,tz=timezone.utc).strftime('%Y-%m-%d'),'open':float(x[1]),'high':float(x[2]),'low':float(x[3]),'close':float(x[4]),'volume':float(x[5])})
+          idx={r['date']:i for i,r in enumerate(rows)}
+          c=[r['close'] for r in rows]
+
+          # Curated high-impact events from primary/Reuters sourcing used in the research note.
+          # sign: +1 = structurally supportive for BTC/risk liquidity; -1 = structurally adverse.
+          events=[
+            ('2024-09-11','MACRO','CPI Aug: headline cooled but core monthly firmer than hoped',-1),
+            ('2024-09-18','FED','Fed cuts 50bp; liquidity-positive but recession-signal risk',+1),
+            ('2024-11-06','POLICY','Trump election win / softer expected crypto regulation',+1),
+            ('2024-12-18','FED','Hawkish Fed path + Powell says Fed cannot hold bitcoin',-1),
+            ('2025-01-20','POLICY','Trump inauguration / pro-crypto policy expectations',+1),
+            ('2025-02-12','MACRO','Hot Jan CPI: 0.5% m/m, 3.0% y/y',-1),
+            ('2025-03-02','CRYPTO_POLICY','Trump announces crypto strategic reserve',+1),
+            ('2025-03-07','CRYPTO_POLICY','Strategic bitcoin reserve executive-order implementation',+1),
+            ('2025-04-02','TRADE','US reciprocal tariff shock / risk-off impulse',-1),
+            ('2025-05-13','MACRO','Soft April CPI + US-China tariff pause',+1),
+            ('2025-06-22','GEOPOLITICS','US strikes Iranian nuclear sites / risk-off',-1),
+            ('2025-07-18','CRYPTO_POLICY','GENIUS Act signed; US crypto regulatory clarity',+1),
+            ('2026-08-12','MACRO','July CPI in line; rate-hike odds ease',+1),
+          ]
+
+          def rsi(i,n=14):
+            if i<n:return None
+            g=l=0
+            for j in range(i-n+1,i+1):
+              d=c[j]-c[j-1]; g+=max(d,0); l+=max(-d,0)
+            return 100 if l==0 else 100-100/(1+(g/n)/(l/n))
+          def sma(i,n): return None if i<n-1 else sum(c[i-n+1:i+1])/n
+          def tech_state(i):
+            if i<200:return 0
+            p=c[i]; m50=sma(i,50); m200=sma(i,200); rr=rsi(i)
+            ret7=p/c[i-7]-1; ret30=p/c[i-30]-1
+            score=0
+            score += 1 if p>m200 else -1
+            score += 1 if m50>m200 else -1
+            score += 1 if ret7>0 else -1
+            score += 1 if ret30>0 else -1
+            score += 1 if rr and rr>50 else -1
+            return score
+
+          lines=[]
+          lines.append('BTC FUNDAMENTAL / EVENT STUDY — 2 YEARS')
+          lines.append(f"Window: {rows[0]['date']} to {rows[-1]['date']} | source=Binance BTCUSDT daily")
+          lines.append('Event list is curated from high-impact macro, policy and geopolitical events; this is not yet an exhaustive news database.')
+          lines.append('')
+          recs=[]
+          for date,cat,name,sign in events:
+            if date not in idx: continue
+            i=idx[date]
+            r={'date':date,'cat':cat,'name':name,'sign':sign,'tech':tech_state(i)}
+            for h in (1,3,7,14,30):
+              r[h]=None if i+h>=len(c) else c[i+h]/c[i]-1
+            recs.append(r)
+            lines.append(f"{date} {cat:13s} bias={'POS' if sign>0 else 'NEG'} tech={r['tech']:+d} | 1d={r[1]*100:+.1f}% 3d={r[3]*100:+.1f}% 7d={r[7]*100:+.1f}% 14d={r[14]*100:+.1f}% 30d={(r[30]*100 if r[30] is not None else float('nan')):+.1f}% | {name}")
+          lines.append('')
+
+          for h in (1,3,7,14,30):
+            use=[r for r in recs if r[h] is not None]
+            aligned=[r for r in use if (r[h]>0 and r['sign']>0) or (r[h]<0 and r['sign']<0)]
+            pos=[r for r in use if r['sign']>0]; neg=[r for r in use if r['sign']<0]
+            poshit=sum(r[h]>0 for r in pos)/len(pos) if pos else float('nan')
+            neghit=sum(r[h]<0 for r in neg)/len(neg) if neg else float('nan')
+            lines.append(f"H{h}: event-bias hit={len(aligned)/len(use)*100:.1f}% N={len(use)} | positive-event hit={poshit*100:.1f}% N={len(pos)} | negative-event hit={neghit*100:.1f}% N={len(neg)}")
+          lines.append('')
+
+          # Stronger combined signal: only act when fundamental bias and technical state are not in conflict.
+          # Positive requires tech >=0; negative requires tech <=0. Conflict => WAIT.
+          for h in (7,14,30):
+            acted=[]
+            for r in recs:
+              if r[h] is None: continue
+              if r['sign']>0 and r['tech']>=0: acted.append(r)
+              elif r['sign']<0 and r['tech']<=0: acted.append(r)
+            hits=[r for r in acted if (r[h]>0 and r['sign']>0) or (r[h]<0 and r['sign']<0)]
+            lines.append(f"COMBINED H{h}: act-only-when-event+technical-not-conflict | hit={len(hits)/len(acted)*100:.1f}% N={len(acted)} | WAIT filtered={len([r for r in recs if r[h] is not None])-len(acted)}")
+          lines.append('')
+
+          # Breakdown by category, 14d.
+          cats=sorted(set(r['cat'] for r in recs))
+          lines.append('CATEGORY 14D')
+          for cat in cats:
+            rr=[r for r in recs if r['cat']==cat and r[14] is not None]
+            if not rr: continue
+            hit=sum((r[14]>0 and r['sign']>0) or (r[14]<0 and r['sign']<0) for r in rr)/len(rr)
+            avg=statistics.mean((r[14] if r['sign']>0 else -r[14]) for r in rr)
+            lines.append(f"{cat}: hit={hit*100:.1f}% N={len(rr)} avg_signed14d={avg*100:+.2f}%")
+
+          open('/tmp/fundamental_event_study.txt','w').write('\n'.join(lines)+'\n')
+          print(open('/tmp/fundamental_event_study.txt').read())
+          PY
+      - uses: actions/checkout@v4
+      - name: Store study result
+        shell: bash
+        run: |
+          cp /tmp/fundamental_event_study.txt btc_fundamental_event_study.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add btc_fundamental_event_study.txt
+          git diff --cached --quiet || git commit -m 'Store BTC fundamental event study [skip ci]'
+          git push
