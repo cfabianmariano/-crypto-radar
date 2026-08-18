@@ -21,40 +21,42 @@ button, select { font: inherit; }
 .brandSub { color:#65758d; font-size:12px; margin-top:4px; letter-spacing:.12em; }
 .live { display:flex; align-items:center; gap:7px; color:#4ade80; font-size:12px; font-weight:700; }
 .live small { color:#718097; font-weight:500; margin-left:5px; }
-.glass {
-  background: linear-gradient(180deg, rgba(16,27,44,.92), rgba(9,17,30,.94));
-  border: 1px solid #1d2b40;
-  box-shadow: 0 18px 60px rgba(0,0,0,.22);
-  border-radius: 18px;
-}
+.glass { background: linear-gradient(180deg, rgba(16,27,44,.92), rgba(9,17,30,.94)); border: 1px solid #1d2b40; box-shadow: 0 18px 60px rgba(0,0,0,.22); border-radius: 18px; }
 .hero { min-height:150px; padding:22px; display:grid; grid-template-columns: 1fr 2fr auto; gap:24px; align-items:center; }
 .coinSelectorWrap label, .eyebrow { display:block; color:#74839a; font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+.eyebrow { display:flex; align-items:center; gap:6px; }
 .selectShell { position:relative; display:inline-flex; align-items:center; min-width:190px; }
-.selectShell select {
-  width:100%; appearance:none; background:#0c1727; color:#eef6ff; border:1px solid #263850;
-  border-radius:12px; padding:12px 36px 12px 13px; outline:none; font-weight:700;
-}
+.selectShell select { width:100%; appearance:none; background:#0c1727; color:#eef6ff; border:1px solid #263850; border-radius:12px; padding:12px 36px 12px 13px; outline:none; font-weight:700; }
 .selectShell svg { position:absolute; right:12px; pointer-events:none; color:#7f8fa7; }
 .priceBlock span { color:#8ca0bb; font-weight:800; letter-spacing:.08em; }
 .priceBlock strong { display:block; font-size:clamp(34px,6vw,66px); line-height:1; margin:6px 0 9px; letter-spacing:-.05em; }
 .positive { color:#4ade80 !important; }
 .negative { color:#fb7185 !important; }
-.refreshBtn {
-  display:flex; align-items:center; gap:8px; border:1px solid #2a3c54; background:#111f33; color:#dbeafe;
-  padding:11px 14px; border-radius:12px; cursor:pointer;
-}
+.refreshBtn { display:flex; align-items:center; gap:8px; border:1px solid #2a3c54; background:#111f33; color:#dbeafe; padding:11px 14px; border-radius:12px; cursor:pointer; }
 .refreshBtn:hover { background:#162841; }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to{ transform:rotate(360deg); } }
+.decisionCard { margin-top:16px; padding:22px; display:grid; grid-template-columns:1.25fr 1.45fr; gap:22px; position:relative; overflow:hidden; }
+.decisionCard::before { content:""; position:absolute; inset:0 auto 0 0; width:5px; background:#64748b; }
+.decisionCard.actionBuy::before { background:#22c55e; }
+.decisionCard.actionSell::before { background:#ef4444; }
+.decisionCard.actionWait::before { background:#f59e0b; }
+.actionWord { font-size:clamp(40px,7vw,72px); font-weight:950; line-height:.95; letter-spacing:-.055em; margin:10px 0; }
+.actionBuy .actionWord { color:#4ade80; }
+.actionSell .actionWord { color:#fb7185; }
+.actionWait .actionWord { color:#fbbf24; }
+.decisionMain p { color:#9aabc1; line-height:1.5; margin:0; max-width:560px; }
+.decisionMetrics { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; align-self:center; }
+.decisionMetrics div { background:#091524; border:1px solid #203149; border-radius:14px; padding:14px; min-height:112px; }
+.decisionMetrics span { display:block; color:#71829a; font-size:11px; line-height:1.25; }
+.decisionMetrics strong { display:block; font-size:30px; margin:7px 0 4px; }
+.decisionMetrics small { color:#7f91aa; font-size:10px; }
+.modelState { grid-column:1/-1; display:flex; gap:8px; flex-wrap:wrap; border-top:1px solid #1d2b40; padding-top:14px; }
+.modelState span { background:#0b1625; border:1px solid #1c2b40; color:#9aabc1; padding:7px 10px; border-radius:999px; font-size:11px; }
 .scoreGrid { display:grid; grid-template-columns: 240px 240px 1fr; gap:16px; margin-top:16px; }
 .gaugeCard { padding:20px; text-align:center; }
 .gaugeTitle { color:#7f90a9; font-size:12px; font-weight:850; letter-spacing:.12em; }
-.gauge {
-  --score: 180deg;
-  width:142px; aspect-ratio:1; border-radius:50%; margin:15px auto 8px;
-  display:grid; place-items:center; position:relative;
-  background: conic-gradient(from -90deg, #22c55e var(--score), #172335 0);
-}
+.gauge { --score: 180deg; width:142px; aspect-ratio:1; border-radius:50%; margin:15px auto 8px; display:grid; place-items:center; position:relative; background: conic-gradient(from -90deg, #22c55e var(--score), #172335 0); }
 .gauge-blue { background:conic-gradient(from -90deg, #38bdf8 var(--score), #172335 0); }
 .gauge::after { content:""; position:absolute; inset:12px; border-radius:50%; background:#091321; border:1px solid #203149; }
 .gaugeInner { z-index:1; display:flex; flex-direction:column; }
@@ -74,7 +76,7 @@ button, select { font: inherit; }
 .legend { display:flex; gap:14px; color:#77879d; font-size:12px; }
 .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
 .priceDot { background:#38bdf8; } .ma50Dot { background:#f59e0b; } .ma200Dot { background:#22c55e; }
-.chartWrap { height:360px; margin-top:18px; }
+.chartWrap { height:390px; margin-top:18px; }
 .hint { color:#6f8198; font-size:12px; }
 .indicatorsGrid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
 .indicatorCard { padding:18px; }
@@ -99,6 +101,7 @@ footer { color:#58687e; font-size:11px; text-align:center; margin-top:24px; }
 @media (max-width: 900px) {
   .hero { grid-template-columns:1fr 1fr; }
   .refreshBtn { grid-column:1 / -1; width:max-content; }
+  .decisionCard { grid-template-columns:1fr; }
   .scoreGrid { grid-template-columns:1fr 1fr; }
   .signalSummary { grid-column:1/-1; }
 }
@@ -106,6 +109,9 @@ footer { color:#58687e; font-size:11px; text-align:center; margin-top:24px; }
   .appShell { width:min(100% - 20px,1220px); padding-top:14px; }
   .hero { grid-template-columns:1fr; }
   .priceBlock strong { font-size:48px; }
+  .decisionCard { padding:18px; }
+  .decisionMetrics { grid-template-columns:1fr 1fr; }
+  .decisionMetrics div:first-child { grid-column:1/-1; }
   .scoreGrid { grid-template-columns:1fr 1fr; }
   .gaugeCard { padding:14px 8px; }
   .gauge { width:116px; }
@@ -114,6 +120,6 @@ footer { color:#58687e; font-size:11px; text-align:center; margin-top:24px; }
   .marketStrip { grid-template-columns:1fr 1fr; }
   .marketStrip div { border-right:0; border-bottom:1px solid #1c2b40; padding:12px; }
   .legend { display:none; }
-  .chartWrap { height:310px; }
+  .chartWrap { height:330px; }
   .miniStats { grid-template-columns:1fr 1fr 1fr; }
 }
