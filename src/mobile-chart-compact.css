@@ -1,0 +1,41 @@
+/* Compact mobile chart controls — trading-app style */
+@media (max-width: 520px) {
+  .simpleChartCard { padding: 12px 10px 14px; }
+  .chartHeader { align-items:center; margin-bottom:6px; }
+  .chartHeader .eyebrow { display:none; }
+  .chartHeader h2 { font-size:18px; }
+  .chartMode { display:none; }
+
+  .chartControls {
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) 82px;
+    gap:6px;
+    margin-top:6px;
+    align-items:end;
+  }
+  .chartControls label { grid-column:auto; min-width:0; }
+  .chartControls label > span { font-size:8px; margin-bottom:3px; letter-spacing:.07em; }
+  .dateShell { padding:6px 5px; border-radius:8px; }
+  .dateShell input { font-size:11px; text-align:center; }
+  .chartControls select { padding:6px 5px; border-radius:8px; font-size:11px; }
+  .autoLoading { grid-column:1/-1; padding:0; margin-top:-2px; font-size:9px; }
+
+  .simpleCandleBlock { margin-top:2px; }
+  .chartToolbar { flex-direction:row; align-items:center; gap:6px; margin:2px 0 4px; }
+  .simpleLegend { gap:9px; font-size:10px; flex-wrap:nowrap; }
+  .legendBadge { width:20px; height:20px; font-size:9px; border-width:1.5px; }
+  .chartActions { width:auto; margin-left:auto; gap:5px; }
+  .toolBtn { flex:0 0 auto; padding:6px 8px; font-size:10px; gap:4px; }
+  .trendLegend { margin:2px 0; font-size:9px; }
+  .gestureHint { display:none; }
+
+  .candleWrap { margin-top:2px; min-height:430px; }
+  .candleCanvas { min-height:420px; }
+  .candleCanvas svg { min-height:410px; }
+  .simpleFoot { margin-top:0; font-size:10px; }
+}
+
+@media (max-width: 380px) {
+  .chartControls { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 72px; gap:4px; }
+  .dateShell input, .chartControls select { font-size:10px; }
+  .toolBtn { padding:6px; }
+}
