@@ -46,6 +46,38 @@
 .decisionCard.actionWait { background:linear-gradient(135deg,rgba(105,78,18,.94),rgba(43,34,14,.96)) !important; }
 .decisionCard .decisionMain p { color:rgba(255,255,255,.7); }
 
+/* Efectividad histórica: compacta, tipo tablero, sin grandes donuts */
+.decisionCard .ringGrid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  align-self:end;
+}
+.decisionCard .ringStat {
+  display:grid;
+  grid-template-columns:72px 1fr;
+  align-items:center;
+  gap:10px;
+  min-height:78px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(5,15,27,.72);
+  border:1px solid rgba(255,255,255,.10);
+  text-align:left;
+}
+.decisionCard .ring {
+  width:64px !important;
+  min-width:64px !important;
+  height:64px !important;
+  aspect-ratio:1;
+}
+.decisionCard .ring::after { inset:7px; }
+.decisionCard .ring strong { font-size:18px; }
+.decisionCard .ring span { font-size:7px; }
+.decisionCard .ringText { text-align:left; }
+.decisionCard .ringText b { font-size:13px; }
+.decisionCard .ringText small { font-size:9px; line-height:1.25; }
+
 @media (max-width:900px) {
   .indicatorsGrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
@@ -57,4 +89,18 @@
   .heatTile .indicatorTop h3 { font-size:12px; }
   .heatTile .indicatorTop strong { font-size:17px; }
   .heatScore { font-size:30px; margin-top:15px; }
+
+  .decisionCard .ringGrid { gap:8px; }
+  .decisionCard .ringStat {
+    grid-template-columns:1fr;
+    justify-items:center;
+    min-height:118px;
+    padding:9px 6px;
+    gap:5px;
+    text-align:center;
+  }
+  .decisionCard .ring { width:58px !important; min-width:58px !important; height:58px !important; }
+  .decisionCard .ringText { text-align:center; }
+  .decisionCard .ringText b { font-size:12px; }
+  .decisionCard .ringText small { font-size:8px; }
 }
