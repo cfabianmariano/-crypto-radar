@@ -7,8 +7,8 @@
 .dateShell input { display:block; width:100%; min-width:0; border:0; padding:0; background:transparent; color:#eef6ff; font:inherit; color-scheme:dark; outline:none; }
 .autoLoading { color:#8ba0b8; font-size:11px; padding:0 3px 11px; white-space:nowrap; }
 .chartError { margin-top:12px; border:1px solid #713a45; background:#2a1218; color:#fecdd3; padding:10px 12px; border-radius:10px; font-size:12px; }
-.simpleChartCard { padding-bottom:18px; }
-.candleWrap { height:auto; min-height:520px; margin-top:10px; }
+.simpleChartCard { padding-bottom:14px; }
+.candleWrap { height:auto; min-height:460px; margin-top:8px; }
 .chartToolbar { display:flex; justify-content:space-between; gap:14px; align-items:center; margin-bottom:6px; }
 .simpleLegend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; color:#b2bfd0; font-size:12px; }
 .simpleLegend span { display:flex; align-items:center; gap:7px; }
@@ -24,15 +24,15 @@
 .trendLine.ma50 { background:#f59e0b; }
 .trendLine.ma200 { background:#38bdf8; }
 .gestureHint { color:#73859d; font-size:10px; margin:4px 0 6px; }
-.candleCanvas { position:relative; width:100%; min-height:500px; user-select:none; -webkit-user-select:none; overscroll-behavior:contain; }
+.candleCanvas { position:relative; width:100%; min-height:440px; user-select:none; -webkit-user-select:none; overscroll-behavior:contain; }
 .interactiveChart { touch-action:none; cursor:grab; -webkit-touch-callout:none; }
 .interactiveChart:active { cursor:grabbing; }
-.candleCanvas svg { display:block; width:100%; height:auto; min-height:490px; overflow:visible; pointer-events:none; }
-.candleTooltip { position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:3px; min-width:180px; padding:10px 12px; border:1px solid #2a3d57; border-radius:10px; background:rgba(8,18,31,.96); color:#cbd5e1; font-size:11px; pointer-events:none; }
-.candleTooltip strong { color:#f8fafc; font-size:12px; margin-bottom:3px; }
+.candleCanvas svg { display:block; width:100%; height:auto; min-height:430px; overflow:visible; pointer-events:none; }
+.candleTooltip { position:absolute; display:flex; flex-direction:column; gap:3px; min-width:170px; padding:9px 11px; border:1px solid rgba(88,110,140,.55); border-radius:10px; background:rgba(8,18,31,.68); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); color:#d7e2ef; font-size:11px; pointer-events:none; box-shadow:0 8px 24px rgba(0,0,0,.22); }
+.candleTooltip strong { color:#fff; font-size:12px; margin-bottom:3px; }
 .resetZoomBtn { display:block; margin:6px auto 0; border:1px solid #263850; background:#0d1b2d; color:#b8c6d8; border-radius:9px; padding:7px 11px; font-size:11px; cursor:pointer; }
 .simpleFoot { text-align:center; color:#8ca0b8; font-size:12px; margin-top:3px; }
-.chartEmpty { min-height:420px; display:grid; place-items:center; color:#7f8fa7; }
+.chartEmpty { min-height:360px; display:grid; place-items:center; color:#7f8fa7; }
 
 .chartExpanded { position:fixed; inset:0; z-index:9999; background:#07111f; padding:12px 16px 18px; overflow:auto; }
 .chartExpanded .candleCanvas { min-height:calc(100vh - 135px); }
@@ -64,6 +64,13 @@
 .expandedStats { grid-template-columns:repeat(2,1fr); margin-top:4px; }
 .expandedStats strong { font-size:18px; }
 
+@media (min-width:1100px) {
+  .candleWrap { min-height:410px; }
+  .candleCanvas { min-height:390px; }
+  .candleCanvas svg { min-height:380px; max-height:56vh; }
+  .simpleChartCard { padding:16px 18px 12px; }
+}
+
 @media (max-width: 900px) {
   .visualDecision { grid-template-columns:1fr; }
 }
@@ -90,7 +97,7 @@
   .candleWrap { min-height:460px; }
   .candleCanvas { min-height:440px; }
   .candleCanvas svg { min-height:430px; }
-  .candleTooltip { top:8px; right:8px; min-width:155px; padding:8px 10px; font-size:10px; }
+  .candleTooltip { min-width:150px; padding:8px 10px; font-size:10px; }
   .autoLoading { padding:0; }
   .accuracyGrid { gap:8px; }
   .accuracyStat { padding:9px 10px; }
