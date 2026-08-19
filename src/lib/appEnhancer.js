@@ -5,6 +5,8 @@ const TAB_LABELS = {
   noticias: 'Noticias',
 }
 
+const BINANCE_SYMBOLS = { BTC: 'BTCUSDT', XRP: 'XRPUSDT', ETH: 'ETHUSDT', BNB: 'BNBUSDT', THETA: 'THETAUSDT' }
+
 function text(el) {
   return el?.textContent?.trim() || ''
 }
@@ -15,6 +17,10 @@ function getLatestSummary() {
   const price = text(document.querySelector('.priceBlock strong')) || '—'
   const change = text(document.querySelector('.priceBlock .positive, .priceBlock .negative')) || ''
   return { action, reason, price, change }
+}
+
+function currentSymbol() {
+  return text(document.querySelector('.priceBlock span')).toUpperCase() || 'BTC'
 }
 
 function setTextIfChanged(el, value) {
@@ -67,9 +73,15 @@ function makeLatestCard() {
       <small data-latest-time></small>
     </div>
     <div class="latestEventBody">
-      <strong data-latest-action>—</strong>
-      <div data-latest-price>—</div>
-      <p data-latest-reason>Analizando…</p>
+      <div class="latestEventCopy">
+        <strong data-latest-action>—</strong>
+        <div data-latest-price>—</div>
+        <p data-latest-reason>Analizando…</p>
+      </div>
+      <div class="latestTrend flat" data-latest-trend title="Tendencia de las últimas 12 horas">
+        <svg viewBox="0 0 145 52" preserveAspectRatio="none" aria-label="Tendencia intradía"><polyline points="0,26 145,26"></polyline></svg>
+        <div class="latestTrendMeta"><strong data-trend-pct>—</strong><small>últimas 12 h</small></div>
+      </div>
     </div>
   `
   return card
@@ -86,6 +98,49 @@ function refreshLatestCard(card) {
 
 function stampLatestTime(card) {
   setTextIfChanged(card.querySelector('[data-latest-time]'), new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+}
+
+async function refreshIntradayTrend(card, force = false) {
+  const symbol = currentSymbol()
+  const binance = BINANCE_SYMBOLS[symbol]
+  const trend = card.querySelector('[data-latest-trend]')
+  const pctEl = card.querySelector('[data-trend-pct]')
+  if (!trend || !pctEl || !binance) {
+    if (trend) trend.hidden = true
+    return
+  }
+  trend.hidden = false
+
+  const now = Date.now()
+  const lastAt = Number(card.dataset.trendAt || 0)
+  if (!force && card.dataset.trendSymbol === symbol && now - lastAt < 2 * 60_000) return
+  card.dataset.trendSymbol = symbol
+  card.dataset.trendAt = String(now)
+
+  try {
+    const response = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${binance}&interval=1h&limit=13`, { headers: { accept: 'application/json' } })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const rows = await response.json()
+    const prices = rows.map((r) => Number(r[4])).filter(Number.isFinite)
+    if (prices.length < 3) throw new Error('Sin datos')
+    const min = Math.min(...prices)
+    const max = Math.max(...prices)
+    const span = max - min || Math.max(max * .001, 1)
+    const points = prices.map((p, i) => {
+      const x = (i / (prices.length - 1)) * 145
+      const y = 47 - ((p - min) / span) * 42
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ')
+    trend.querySelector('polyline').setAttribute('points', points)
+    const pct = (prices.at(-1) / prices[0] - 1) * 100
+    pctEl.textContent = `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%`
+    trend.classList.remove('up', 'down', 'flat')
+    trend.classList.add(Math.abs(pct) < .01 ? 'flat' : pct > 0 ? 'up' : 'down')
+  } catch {
+    pctEl.textContent = '—'
+    trend.classList.remove('up', 'down')
+    trend.classList.add('flat')
+  }
 }
 
 function makeNewsPanel() {
@@ -325,7 +380,11 @@ function makeNav(main, latest, news, market) {
       const active = setTab(key, nav, main)
       if (active === 'noticias') loadNews(news)
       if (active === 'indicadores') loadMarketOverview(market)
-      if (active === 'ahora') { refreshLatestCard(latest); stampLatestTime(latest) }
+      if (active === 'ahora') {
+        refreshLatestCard(latest)
+        stampLatestTime(latest)
+        refreshIntradayTrend(latest, true)
+      }
     })
     nav.appendChild(button)
   }
@@ -399,6 +458,7 @@ export function enhanceCryptoRadar() {
     main.insertBefore(nav, latest)
     refreshLatestCard(latest)
     stampLatestTime(latest)
+    refreshIntradayTrend(latest, true)
     news.querySelector('.newsRefresh').addEventListener('click', () => loadNews(news))
     setupTooltipFollow(main)
 
@@ -412,6 +472,7 @@ export function enhanceCryptoRadar() {
       const current = nav.querySelector('button[data-tab].active')?.dataset.tab
       if (current === 'noticias') loadNews(news)
       if (current === 'indicadores') loadMarketOverview(market)
+      if (current === 'ahora') refreshIntradayTrend(latest, true)
     }, 5 * 60_000)
     window.addEventListener('pagehide', () => clearInterval(liveRefresh), { once: true })
 
@@ -425,12 +486,14 @@ export function enhanceCryptoRadar() {
       scheduled = true
       requestAnimationFrame(() => {
         scheduled = false
+        const oldSymbol = latest.dataset.trendSymbol
         refreshLatestCard(latest)
         stampLatestTime(latest)
         maybeNotifySignal()
         labelPanels(main)
         const current = nav.querySelector('button[data-tab].active')?.dataset.tab || 'ahora'
         applyPanelVisibility(main, current)
+        if (oldSymbol !== currentSymbol()) refreshIntradayTrend(latest, true)
       })
     })
     observer.observe(main, { childList: true, subtree: true, characterData: true })
