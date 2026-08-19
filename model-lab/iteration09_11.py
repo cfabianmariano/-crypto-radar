@@ -3,9 +3,10 @@ import io
 import json
 import math
 import statistics
+import subprocess
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 DAY = 24*60*60*1000
@@ -28,10 +29,9 @@ def fetch_btc(days=760):
 
 
 def fetch_fred(series):
-    req=urllib.request.Request(FRED.format(series),headers={'User-Agent':'crypto-radar-model-lab/1.0'})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        text=r.read().decode('utf-8-sig')
-    reader=csv.DictReader(io.StringIO(text))
+    # curl is more robust than urllib against FRED redirects/CDN behaviour on GitHub runners.
+    text=subprocess.check_output(['curl','-fsSL','--retry','3',FRED.format(series)], text=True)
+    reader=csv.DictReader(io.StringIO(text.lstrip('\ufeff')))
     out={}
     for row in reader:
         d=row.get('DATE') or row.get('observation_date')
@@ -40,6 +40,8 @@ def fetch_fred(series):
             continue
         try: out[d]=float(v)
         except: pass
+    if not out:
+        raise RuntimeError(f'FRED {series} returned no usable observations')
     return out
 
 
@@ -106,13 +108,11 @@ def build():
 
 def residual_model(rows, split):
     tr=[x for x in rows[:split] if 'nas3' in x]
-    # standardized macro pressure: NASDAQ positive is tailwind; stronger dollar/yields are headwind.
     mus={k:mean([x[k] for x in tr]) for k in ('nas3','usd3','y5')}
     sds={k:std([x[k] for x in tr]) or 1 for k in ('nas3','usd3','y5')}
     for x in rows:
         if 'nas3' not in x: continue
         x['macro_support']=(x['nas3']-mus['nas3'])/sds['nas3'] - (x['usd3']-mus['usd3'])/sds['usd3'] - (x['y5']-mus['y5'])/sds['y5']
-    # estimate BTC sensitivity to macro_support in train only
     tr=[x for x in rows[:split] if 'macro_support' in x]
     mx=mean([x['macro_support'] for x in tr]); my=mean([x['btc3'] for x in tr])
     var=sum((x['macro_support']-mx)**2 for x in tr)
@@ -125,7 +125,7 @@ def residual_model(rows, split):
     return alpha,beta
 
 
-def report(name, objective, setups, btc, rows, split, notes):
+def report(name, objective, setups, btc, split, notes):
     closes=[r['close'] for r in btc]
     lines=[f'# Crypto Radar Model Lab — Iteración {name}','',objective,'',f'Período BTC: {btc[0]["date"]} → {btc[-1]["date"]}. Split temporal 70/30. Horizonte: 30 días. Cooldown: 7 días.','', '| Setup | Train N | Train acierto | Valid N | Valid acierto | Valid >5% | Retorno firmado medio |','|---|---:|---:|---:|---:|---:|---:|']
     for label,(side,idxs) in setups.items():
@@ -140,30 +140,28 @@ def report(name, objective, setups, btc, rows, split, notes):
 
 def main():
     btc,rows=build(); split=int(len(btc)*.70)
-    alpha,beta=residual_model(rows,split)
+    _,beta=residual_model(rows,split)
     tr=[x for x in rows[:split] if 'resid' in x]
+    if len(tr)<100: raise RuntimeError(f'Insufficient macro-aligned train rows: {len(tr)}')
     r20=qtile([x['resid'] for x in tr],.20); r80=qtile([x['resid'] for x in tr],.80)
     m20=qtile([x['macro_support'] for x in tr],.20); m80=qtile([x['macro_support'] for x in tr],.80)
 
-    # 09: pure relative-strength / decoupling indicator. Thresholds learned from train distribution, not validation.
     s09={
       'BUY positive_decoupling':('BUY',[x['i'] for x in rows if x.get('resid') is not None and x['resid']>=r80]),
       'SELL negative_decoupling':('SELL',[x['i'] for x in rows if x.get('resid') is not None and x['resid']<=r20]),
     }
-    report('09','Objetivo: medir un indicador propio de **desacople**: BTC rinde mucho mejor o peor de lo esperable frente a NASDAQ + dólar amplio + Treasury 10Y. El modelo esperado se estima solo en entrenamiento.',s09,btc,rows,split,[f'Beta estimada BTC3d vs macro_support: {beta:.4f}.','NASDAQCOM, DTWEXBGS y DGS10 se obtienen de FRED; se hace forward-fill solo para fines de semana/feriados, usando el último dato conocido.','Un residual extremo no presupone continuación: la validación decide si la anomalía tiene persistencia o reversión.'])
+    report('09','Objetivo: medir un indicador propio de **desacople**: BTC rinde mucho mejor o peor de lo esperable frente a NASDAQ + dólar amplio + Treasury 10Y. El modelo esperado se estima solo en entrenamiento.',s09,btc,split,[f'Beta estimada BTC3d vs macro_support: {beta:.4f}.','NASDAQCOM, DTWEXBGS y DGS10 se obtienen de FRED; forward-fill solo usa el último dato conocido en fines de semana/feriados.','Un residual extremo no presupone continuación: la validación decide persistencia o reversión.'])
 
-    # 10: bad environment that BTC absorbs / good environment BTC fails to exploit.
     s10={
       'BUY macro_pressure_absorbed':('BUY',[x['i'] for x in rows if x.get('resid') is not None and x['macro_support']<=m20 and x['resid']>=r80 and x['closepos']>=.55]),
       'SELL macro_tailwind_failed':('SELL',[x['i'] for x in rows if x.get('resid') is not None and x['macro_support']>=m80 and x['resid']<=r20 and x['closepos']<=.45]),
     }
-    report('10','Objetivo: probar **causa → reacción anómala**. BUY cuando el contexto es de presión macro pero BTC absorbe y cierra relativamente fuerte; SELL cuando el contexto ayuda pero BTC no puede aprovecharlo.',s10,btc,rows,split,['Esta es la versión cuantitativa de “mala noticia/contexto y BTC no cae” y su inversa.','Se exige cierre coherente dentro de la vela para evitar llamar absorción a un residual generado por ruido.','Si la muestra queda pequeña, el concepto se conserva pero no se promueve.'])
+    report('10','Objetivo: probar **causa → reacción anómala**. BUY cuando el contexto es de presión macro pero BTC absorbe y cierra relativamente fuerte; SELL cuando el contexto ayuda pero BTC no puede aprovecharlo.',s10,btc,split,['Versión cuantitativa de “mala noticia/contexto y BTC no cae” y su inversa.','Se exige cierre coherente dentro de la vela para evitar llamar absorción a ruido.','Si N queda pequeño, no se promueve aunque el porcentaje sea alto.'])
 
-    # 11: add simple price structure to anomaly, deliberately not tuning many thresholds.
     s11={
       'BUY resilient_higher_structure':('BUY',[x['i'] for x in rows if x.get('resid') is not None and x['resid']>=r80 and btc[x['i']]['close']>=x['ma20'] and btc[x['i']]['low']>x['low20']*.985 and x['btc7']<.06]),
       'SELL weak_lower_structure':('SELL',[x['i'] for x in rows if x.get('resid') is not None and x['resid']<=r20 and btc[x['i']]['close']<x['ma20'] and btc[x['i']]['high']<x['high20']*1.01 and x['btc7']>-.08]),
     }
-    report('11','Objetivo: combinar **información relativa + estructura de precio**. La anomalía macro no dispara sola: debe coincidir con una estructura que muestre resiliencia (BUY) o incapacidad (SELL).',s11,btc,rows,split,['No se optimizan docenas de indicadores: solo desacople + MA20 + estructura de 20 días.','La intención es comprobar si el mercado “sabe algo” antes de que una tendencia clásica se vuelva evidente.','Si mejora validación frente a Iteración 09 sin destruir N, la estructura aporta información incremental.'])
+    report('11','Objetivo: combinar **información relativa + estructura de precio**. La anomalía macro no dispara sola: debe coincidir con resiliencia (BUY) o incapacidad (SELL).',s11,btc,split,['No se optimizan docenas de indicadores: solo desacople + MA20 + estructura de 20 días.','Buscamos si el mercado “sabe algo” antes de que una tendencia clásica sea evidente.','Si mejora frente a Iteración 09 sin destruir N, la estructura aporta información incremental.'])
 
 if __name__=='__main__': main()
