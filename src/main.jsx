@@ -1,22 +1,18 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App'
+import AppV2 from './AppV2'
 import './styles.css'
 import './mobile-chart-compact.css'
 import './dashboard-heatmap.css'
-import './app-shell.css'
+import './chart-controls.css'
 import './chart-analysis-tools.css'
-import './ui-polish.css'
-import { enhanceCryptoRadar } from './lib/appEnhancer'
+import './dashboard-v2.css'
 import { enhanceChartAnalysis } from './lib/chartTools'
-import { polishCryptoRadar } from './lib/uiPolish'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <AppV2 />
   </React.StrictMode>,
 )
 
-enhanceCryptoRadar()
 enhanceChartAnalysis()
-polishCryptoRadar()
