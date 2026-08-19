@@ -69,8 +69,6 @@ function CandleChart({ data, signals = [], trendSource = [] }) {
   }, [expanded])
 
   const studies = useMemo(() => {
-    // Para rangos cortos (por defecto 30 días), usamos el historial diario de 2 años
-    // como warm-up para que SMA50/SMA200 sigan visibles desde la primera vela.
     const ownCloses = data.map((d) => d.close ?? d.price)
     if (data.length >= 200) {
       return { sma50: rollingSma(ownCloses, 50), sma200: rollingSma(ownCloses, 200) }
@@ -180,25 +178,37 @@ function CandleChart({ data, signals = [], trendSource = [] }) {
     return Math.max(0, Math.min(visibleData.length - 1, Math.floor(ratio * visibleData.length)))
   }
 
+  const panFromDrag = (clientX, state) => {
+    const rect = wrapRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const dx = clientX - state.x
+    const bars = Math.round((-dx / rect.width) * (state.end - state.start + 1))
+    const size = state.end - state.start
+    setWindow(state.start + bars, state.start + bars + size)
+  }
+
   const handlePointerDown = (event) => {
-    if (event.pointerType === 'touch') return
+    // Pointer Events es más confiable en Safari/iPhone para arrastrar con un dedo.
+    if (event.pointerType === 'touch' && touchRef.current?.type === 'pinch') return
     event.currentTarget.setPointerCapture?.(event.pointerId)
-    dragRef.current = { x: event.clientX, start: viewStart, end: viewEnd }
+    dragRef.current = { x: event.clientX, start: viewStart, end: viewEnd, pointerType: event.pointerType }
   }
 
   const handlePointerMove = (event) => {
-    if (event.pointerType === 'touch') return
+    if (event.pointerType === 'touch' && touchRef.current?.type === 'pinch') return
     if (dragRef.current) {
-      const rect = wrapRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const dx = event.clientX - dragRef.current.x
-      const bars = Math.round((-dx / rect.width) * (dragRef.current.end - dragRef.current.start + 1))
-      const size = dragRef.current.end - dragRef.current.start
-      setWindow(dragRef.current.start + bars, dragRef.current.start + bars + size)
+      panFromDrag(event.clientX, dragRef.current)
       return
     }
-    const i = pointerToIndex(event.clientX)
-    if (i != null) setHoverIndex(i)
+    if (event.pointerType !== 'touch') {
+      const i = pointerToIndex(event.clientX)
+      if (i != null) setHoverIndex(i)
+    }
+  }
+
+  const endPointerDrag = (event) => {
+    try { event?.currentTarget?.releasePointerCapture?.(event.pointerId) } catch {}
+    dragRef.current = null
   }
 
   const handleWheel = (event) => {
@@ -211,33 +221,28 @@ function CandleChart({ data, signals = [], trendSource = [] }) {
 
   const handleTouchStart = (event) => {
     if (event.touches.length === 2) {
+      dragRef.current = null
       const [a, b] = event.touches
       touchRef.current = { type: 'pinch', distance: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY), start: viewStart, end: viewEnd }
     } else if (event.touches.length === 1) {
-      touchRef.current = { type: 'pan', x: event.touches[0].clientX, start: viewStart, end: viewEnd }
+      touchRef.current = { type: 'pan' }
     }
   }
 
   const handleTouchMove = (event) => {
     const state = touchRef.current
-    if (!state) return
-    if (state.type === 'pinch' && event.touches.length === 2) {
-      event.preventDefault()
-      const [a, b] = event.touches
-      const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY)
-      const oldSize = state.end - state.start + 1
-      const newSize = Math.max(Math.min(8, data.length), Math.min(data.length, Math.round(oldSize * (state.distance / Math.max(distance, 1)))))
-      const center = (state.start + state.end) / 2
-      setWindow(center - (newSize - 1) / 2, center + (newSize - 1) / 2)
-    } else if (state.type === 'pan' && event.touches.length === 1) {
-      event.preventDefault()
-      const rect = wrapRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const dx = event.touches[0].clientX - state.x
-      const bars = Math.round((-dx / rect.width) * (state.end - state.start + 1))
-      const size = state.end - state.start
-      setWindow(state.start + bars, state.start + bars + size)
-    }
+    if (!state || state.type !== 'pinch' || event.touches.length !== 2) return
+    event.preventDefault()
+    const [a, b] = event.touches
+    const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY)
+    const oldSize = state.end - state.start + 1
+    const newSize = Math.max(Math.min(8, data.length), Math.min(data.length, Math.round(oldSize * (state.distance / Math.max(distance, 1)))))
+    const center = (state.start + state.end) / 2
+    setWindow(center - (newSize - 1) / 2, center + (newSize - 1) / 2)
+  }
+
+  const handleTouchEnd = (event) => {
+    if (event.touches.length < 2) touchRef.current = event.touches.length === 1 ? { type: 'pan' } : null
   }
 
   const resetZoom = () => setWindow(0, data.length - 1)
@@ -246,8 +251,8 @@ function CandleChart({ data, signals = [], trendSource = [] }) {
     <div className={expanded ? 'chartExpanded' : ''}>
       <div className="chartToolbar">
         <div className="simpleLegend">
-          <span><b className="legendBadge buyBadge">B</b> Comprar</span>
-          <span><b className="legendBadge sellBadge">S</b> Vender</span>
+          <span><b className="signalArrowLegend buyArrowLegend">↓</b> Comprar</span>
+          <span><b className="signalArrowLegend sellArrowLegend">↑</b> Vender</span>
         </div>
         <div className="chartActions">
           <button className={showTrend ? 'toolBtn active' : 'toolBtn'} onClick={() => setShowTrend((v) => !v)}><TrendingUp size={15}/> Tendencia</button>
@@ -255,21 +260,22 @@ function CandleChart({ data, signals = [], trendSource = [] }) {
         </div>
       </div>
       {showTrend && <div className="trendLegend"><span><i className="trendLine ma50"/> SMA50</span><span><i className="trendLine ma200"/> SMA200</span></div>}
-      <div className="gestureHint">Arrastrá para mover · pellizcá o usá la rueda para zoom</div>
+      <div className="gestureHint">Arrastrá con un dedo para mover · pellizcá para zoom</div>
 
       <div
         className="candleCanvas interactiveChart"
         ref={wrapRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={() => { dragRef.current = null }}
-        onPointerCancel={() => { dragRef.current = null }}
-        onPointerLeave={() => { setHoverIndex(null); dragRef.current = null }}
+        onPointerUp={endPointerDrag}
+        onPointerCancel={endPointerDrag}
+        onPointerLeave={(event) => { if (event.pointerType !== 'touch') { setHoverIndex(null); endPointerDrag(event) } }}
         onWheel={handleWheel}
         onDoubleClick={resetZoom}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
-        onTouchEnd={() => { touchRef.current = null }}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={() => { touchRef.current = null; dragRef.current = null }}
       >
         <svg viewBox={`0 0 ${g.W} ${g.H}`} role="img" aria-label="Gráfico de velas BTC">
           {yTicks.map((tick) => (
@@ -308,12 +314,17 @@ function CandleChart({ data, signals = [], trendSource = [] }) {
 
           {signalPoints.map((s, idx) => {
             const candle = visibleData[s.i]
-            const cy = s.side === 'BUY' ? g.y(candle.low) + 15 : g.y(candle.high) - 15
-            const fill = s.side === 'BUY' ? '#16a34a' : '#dc2626'
+            const isBuy = s.side === 'BUY'
+            const x = g.x(s.i)
+            const y = isBuy ? Math.min(g.priceBottom - 8, g.y(candle.low) + 28) : Math.max(g.top + 8, g.y(candle.high) - 28)
+            const fill = isBuy ? '#22c55e' : '#ef4444'
+            const points = isBuy
+              ? `${x - 11},${y - 9} ${x + 11},${y - 9} ${x},${y + 11}`
+              : `${x - 11},${y + 9} ${x + 11},${y + 9} ${x},${y - 11}`
             return (
-              <g key={`${s.side}-${idx}`}>
-                <circle cx={g.x(s.i)} cy={cy} r="10" fill={fill} stroke="#fff" strokeWidth="2.2" />
-                <text x={g.x(s.i)} y={cy + 3.5} textAnchor="middle" fill="#fff" fontSize="10" fontWeight="900">{s.side === 'BUY' ? 'B' : 'S'}</text>
+              <g key={`${s.side}-${idx}`} className="signalArrow">
+                <polygon points={points} fill={fill} stroke="#fff" strokeWidth="2.2" />
+                <line x1={x} x2={x} y1={isBuy ? y - 18 : y + 18} y2={isBuy ? y - 7 : y + 7} stroke={fill} strokeWidth="5" strokeLinecap="round" />
               </g>
             )
           })}
@@ -489,7 +500,7 @@ function App() {
                 <ResponsiveContainer width="100%" height="100%"><AreaChart data={lineChartData} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}><CartesianGrid stroke="#1d2a3c" vertical={false} /><XAxis dataKey="date" tick={{ fill: '#7f8da3', fontSize: 11 }} minTickGap={65} axisLine={false} tickLine={false}/><YAxis domain={['auto', 'auto']} tickFormatter={(v) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v.toFixed(2)}`} tick={{ fill: '#7f8da3', fontSize: 11 }} axisLine={false} tickLine={false} width={60}/><Tooltip contentStyle={{ background: '#0c1727', border: '1px solid #26374f', borderRadius: 12 }} labelStyle={{ color: '#a8b5c8' }} formatter={(v, name) => [fmtPrice(v), name === 'price' ? 'Precio' : name.toUpperCase()]}/><Area type="monotone" dataKey="price" stroke="#38bdf8" strokeWidth={2.3} fillOpacity={.12} fill="#38bdf8" dot={false}/><Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 5" dot={false}/><Line type="monotone" dataKey="ma200" stroke="#22c55e" strokeWidth={1.6} strokeDasharray="7 6" dot={false}/></AreaChart></ResponsiveContainer>
               )}
             </div>
-            {coinId === 'bitcoin' && <div className="chartFoot simpleFoot">B = Comprar · S = Vender · Tendencia = SMA50/SMA200</div>}
+            {coinId === 'bitcoin' && <div className="chartFoot simpleFoot">↓ = Comprar · ↑ = Vender · Tendencia = SMA50/SMA200</div>}
           </section>
 
           <section className="scoreGrid restoredScores">
@@ -514,7 +525,7 @@ function App() {
       )}
 
       {!indicators && !error && <div className="loadingState">Construyendo radar de {coin.symbol}…</div>}
-      <footer>BTC V0.8 · señal, efectividad, tendencia, volumen y gráfico interactivo.</footer>
+      <footer>BTC V0.9 · tablero, tendencia, volumen, flechas de señal y gráfico táctil.</footer>
     </main>
   )
 }
