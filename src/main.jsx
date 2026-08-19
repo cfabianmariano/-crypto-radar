@@ -6,8 +6,10 @@ import './mobile-chart-compact.css'
 import './dashboard-heatmap.css'
 import './app-shell.css'
 import './chart-analysis-tools.css'
+import './ui-polish.css'
 import { enhanceCryptoRadar } from './lib/appEnhancer'
 import { enhanceChartAnalysis } from './lib/chartTools'
+import { polishCryptoRadar } from './lib/uiPolish'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -17,3 +19,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
 enhanceCryptoRadar()
 enhanceChartAnalysis()
+polishCryptoRadar()
