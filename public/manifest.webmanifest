@@ -1,0 +1,10 @@
+{
+  "name": "Crypto Radar",
+  "short_name": "Crypto Radar",
+  "start_url": "/?tab=ahora",
+  "display": "standalone",
+  "background_color": "#08111f",
+  "theme_color": "#08111f",
+  "description": "Señales, gráficos, indicadores y noticias para BTC y cripto.",
+  "icons": []
+}
