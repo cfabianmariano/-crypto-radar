@@ -1,5 +1,4 @@
 import importlib.util
-import statistics
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location('base', 'model-lab/iteration09_11.py')
@@ -30,16 +29,13 @@ def eval_idx(idxs,c,h=7):
 
 def main():
     btc,feats=base.build(); c=enrich(btc,feats)
-    # Frozen semantic rule from deep sweep: upper_wick high + recovery3 low.
-    # Each fold re-estimates only the 20/80 percentile thresholds from prior history.
     folds=[
         ('Fold 1','2025-05-01','2025-08-31'),
         ('Fold 2','2025-09-01','2025-12-31'),
         ('Fold 3','2026-01-01','2026-04-30'),
         ('Fold 4','2026-05-01','2026-08-12'),
     ]
-    rows=[]; allvals=[]; total_hits=total_n=total_sig=0
-    weighted=0.0
+    rows=[]; total_hits=total_n=total_sig=0; weighted=0.0
     for label,start,end in folds:
         train=[x for x in feats if x['date']<start and x.get('upper_wick') is not None and x.get('recovery3') is not None]
         uw80=q([x['upper_wick'] for x in train],.80)
@@ -48,7 +44,10 @@ def main():
         st=eval_idx(idxs,c,7)
         rows.append((label,start,end,st))
         if st['n']:
-            total_n += st['n']; total_hits += st['hits']; total_sig += round((st['sig5'] or 0)*st['n']); weighted += (st['avg'] or 0)*st['n']
+            total_n += st['n']
+            total_hits += round((st['hit'] or 0)*st['n'])
+            total_sig += round((st['sig5'] or 0)*st['n'])
+            weighted += (st['avg'] or 0)*st['n']
     hit=total_hits/total_n if total_n else None
     sig=total_sig/total_n if total_n else None
     avg=weighted/total_n if total_n else None
