@@ -7,6 +7,7 @@ import './dashboard-heatmap.css'
 import './chart-controls.css'
 import './chart-analysis-tools.css'
 import './dashboard-v2.css'
+import './dashboard-v2-layout-fix.css'
 import { enhanceChartAnalysis } from './lib/chartTools'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
