@@ -94,11 +94,11 @@ function makeNewsPanel() {
   panel.dataset.cryptoPanel = 'noticias'
   panel.innerHTML = `
     <div class="newsPanelHeader">
-      <div><span class="eyebrow">CATALIZADORES</span><h2>Noticias y reacción del mercado</h2></div>
+      <div><span class="eyebrow">CATALIZADORES · ÚLTIMAS 5 HORAS</span><h2>Noticias y reacción del mercado</h2></div>
       <button type="button" class="newsRefresh">Actualizar</button>
     </div>
-    <p class="newsIntro">Se priorizan noticias capaces de mover liquidez, tasas, dólar, regulación o criptomonedas. La lectura final debe combinar noticia + reacción del precio.</p>
-    <div class="newsStatus">Tocá Actualizar para buscar lo último.</div>
+    <p class="newsIntro">Se priorizan noticias capaces de mover liquidez, tasas, dólar, regulación o criptomonedas. La pestaña se actualiza al abrirla y mientras permanece visible.</p>
+    <div class="newsStatus">Cargando noticias recientes…</div>
     <div class="newsList"></div>
   `
   return panel
@@ -115,19 +115,30 @@ function classifyHeadline(title = '') {
 }
 
 async function loadNews(panel) {
+  if (panel.dataset.loading === '1') return
+  panel.dataset.loading = '1'
   const status = panel.querySelector('.newsStatus')
   const list = panel.querySelector('.newsList')
-  status.textContent = 'Buscando lo último…'
-  list.innerHTML = ''
+  status.textContent = 'Buscando noticias de las últimas 5 horas…'
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 12000)
   try {
     const response = await fetch('/api/news', { headers: { accept: 'application/json' }, signal: controller.signal })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
-    const articles = Array.isArray(data.articles) ? data.articles.slice(0, 12) : []
-    if (!articles.length) throw new Error('Sin noticias relevantes en este momento')
-    status.textContent = `Actualizado ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    const cutoff = Date.now() - 5 * 60 * 60 * 1000
+    const articles = (Array.isArray(data.articles) ? data.articles : [])
+      .filter((a) => !a.seendate || new Date(a.seendate).getTime() >= cutoff)
+      .sort((a, b) => new Date(b.seendate || 0).getTime() - new Date(a.seendate || 0).getTime())
+      .slice(0, 16)
+
+    list.innerHTML = ''
+    if (!articles.length) {
+      status.textContent = 'No encontré noticias relevantes publicadas en las últimas 5 horas.'
+      return
+    }
+
+    status.textContent = `${articles.length} noticias · actualizado ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     for (const article of articles) {
       const item = document.createElement('article')
       item.className = 'newsItem'
@@ -140,9 +151,131 @@ async function loadNews(panel) {
       list.appendChild(item)
     }
   } catch (error) {
-    status.textContent = error.name === 'AbortError' ? 'La fuente de noticias tardó demasiado. Probá Actualizar.' : `No pude cargar noticias: ${error.message}`
+    status.textContent = error.name === 'AbortError' ? 'La fuente tardó demasiado. Reintentaré automáticamente.' : `No pude cargar noticias: ${error.message}`
   } finally {
     clearTimeout(timer)
+    panel.dataset.loading = '0'
+  }
+}
+
+function makeMarketPanel() {
+  const panel = document.createElement('section')
+  panel.className = 'marketDashboard cryptoRadarInjected tab-indicadores'
+  panel.dataset.cryptoPanel = 'indicadores'
+  panel.innerHTML = `
+    <div class="marketDashboardHead">
+      <div><span class="eyebrow">MERCADO AHORA</span><h2>Indicadores, fuerza relativa y pares</h2></div>
+      <div class="marketUpdated" data-market-updated>Cargando…</div>
+    </div>
+    <div class="marketInsight" data-market-insight>Construyendo lectura de mercado…</div>
+    <div class="marketTiles" data-market-assets></div>
+    <div class="marketSectionTitle"><span>FUERZA RELATIVA</span><small>Variación del par en 24 h</small></div>
+    <div class="pairTiles" data-market-pairs></div>
+    <div class="marketSectionTitle"><span>CONTEXTO GENERAL</span><small>Datos de amplitud y capitalización</small></div>
+    <div class="globalTiles" data-market-global></div>
+    <p class="marketNote">El drawdown desde ATH queda como dato de contexto, no como señal diaria. Verde = mejora en 24 h, rojo = deterioro, neutro = sin variación material.</p>
+  `
+  return panel
+}
+
+function tone(change) {
+  if (!Number.isFinite(change) || Math.abs(change) < 0.005) return 'flat'
+  return change > 0 ? 'up' : 'down'
+}
+
+function fmtPct(value, digits = 2) {
+  if (!Number.isFinite(value)) return '—'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(digits)}%`
+}
+
+function fmtPrice(value) {
+  if (!Number.isFinite(value)) return '—'
+  if (value >= 1000) return `$${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+  if (value >= 1) return `$${value.toLocaleString('en-US', { maximumFractionDigits: 3 })}`
+  return `$${value.toLocaleString('en-US', { maximumFractionDigits: 7 })}`
+}
+
+function fmtPair(value) {
+  if (!Number.isFinite(value)) return '—'
+  if (value >= 1000) return value.toLocaleString('en-US', { maximumFractionDigits: 1 })
+  if (value >= 1) return value.toLocaleString('en-US', { maximumFractionDigits: 4 })
+  return value.toLocaleString('en-US', { maximumFractionDigits: 8 })
+}
+
+function marketTile({ eyebrow, label, value, change, extra = '' }) {
+  const el = document.createElement('article')
+  el.className = `marketTile ${tone(change)}`
+  el.innerHTML = `<div class="marketTileTop"><span>${eyebrow}</span><b>${fmtPct(change)}</b></div><h3>${label}</h3><strong>${value}</strong><small>${extra}</small>`
+  return el
+}
+
+async function loadMarketOverview(panel) {
+  if (panel.dataset.loading === '1') return
+  panel.dataset.loading = '1'
+  const updated = panel.querySelector('[data-market-updated]')
+  const assetsEl = panel.querySelector('[data-market-assets]')
+  const pairsEl = panel.querySelector('[data-market-pairs]')
+  const globalEl = panel.querySelector('[data-market-global]')
+  const insight = panel.querySelector('[data-market-insight]')
+  updated.textContent = 'Actualizando…'
+
+  try {
+    const response = await fetch('/api/market-overview', { headers: { accept: 'application/json' } })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    const assets = Array.isArray(data.assets) ? data.assets : []
+    assetsEl.innerHTML = ''
+    pairsEl.innerHTML = ''
+    globalEl.innerHTML = ''
+
+    for (const asset of assets) {
+      assetsEl.appendChild(marketTile({
+        eyebrow: asset.symbol,
+        label: `${asset.symbol}/USD`,
+        value: fmtPrice(asset.price),
+        change: asset.change24,
+        extra: `7d ${fmtPct(asset.change7d, 1)} · 30d ${fmtPct(asset.change30d, 1)}`,
+      }))
+    }
+
+    for (const [name, pair] of Object.entries(data.pairs || {})) {
+      if (!pair) continue
+      pairsEl.appendChild(marketTile({
+        eyebrow: 'PAR',
+        label: name,
+        value: fmtPair(pair.value),
+        change: Number(pair.change24),
+        extra: pair.change24 > 0 ? `${name.split('/')[0]} gana fuerza relativa` : pair.change24 < 0 ? `${name.split('/')[0]} pierde fuerza relativa` : 'Sin cambio relativo',
+      }))
+    }
+
+    const global = data.global || {}
+    if (Number.isFinite(global.btcDominance)) {
+      globalEl.appendChild(marketTile({ eyebrow: 'DOMINANCIA', label: 'BTC dominance', value: `${global.btcDominance.toFixed(1)}%`, change: NaN, extra: 'Participación de BTC en el mercado cripto' }))
+    }
+    if (Number.isFinite(global.marketCapChange24)) {
+      globalEl.appendChild(marketTile({ eyebrow: 'MERCADO TOTAL', label: 'Capitalización cripto', value: fmtPct(global.marketCapChange24), change: global.marketCapChange24, extra: 'Variación total en 24 h' }))
+    }
+
+    const green = assets.filter((a) => Number(a.change24) > 0).length
+    const red = assets.filter((a) => Number(a.change24) < 0).length
+    globalEl.appendChild(marketTile({ eyebrow: 'AMPLITUD', label: 'Activos seguidos', value: `${green} ↑ / ${red} ↓`, change: green === red ? 0 : green > red ? 1 : -1, extra: `${assets.length} activos en el radar` }))
+
+    const btc = assets.find((a) => a.symbol === 'BTC')
+    const xrpBtc = data.pairs?.['XRP/BTC']
+    const ethBtc = data.pairs?.['ETH/BTC']
+    const parts = []
+    if (btc) parts.push(`BTC ${fmtPct(btc.change24)}`)
+    if (xrpBtc) parts.push(`XRP/BTC ${fmtPct(xrpBtc.change24)}`)
+    if (ethBtc) parts.push(`ETH/BTC ${fmtPct(ethBtc.change24)}`)
+    insight.textContent = parts.length ? `Lectura rápida · ${parts.join(' · ')}` : 'Lectura de mercado actualizada.'
+    updated.textContent = `Actualizado ${new Date(data.generatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  } catch (error) {
+    updated.textContent = 'Sin actualización'
+    insight.textContent = `No pude cargar el panel de mercado: ${error.message}`
+  } finally {
+    panel.dataset.loading = '0'
   }
 }
 
@@ -154,6 +287,10 @@ function labelPanels(main) {
     if (section.classList.contains('hero') || section.classList.contains('decisionCard')) panel = 'ahora'
     else if (section.classList.contains('chartCard')) panel = 'grafico'
     if (section.dataset.cryptoPanel !== panel) section.dataset.cryptoPanel = panel
+
+    if (panel === 'indicadores' && (section.classList.contains('scoreGrid') || section.querySelector('.indicatorsGrid'))) {
+      section.classList.add('legacyIndicatorSection')
+    }
   }
 }
 
@@ -172,9 +309,10 @@ function setTab(tab, nav, main) {
   url.searchParams.set('tab', target)
   history.replaceState(null, '', url)
   window.scrollTo({ top: 0, behavior: 'smooth' })
+  return target
 }
 
-function makeNav(main, latest, news) {
+function makeNav(main, latest, news, market) {
   const nav = document.createElement('nav')
   nav.className = 'cryptoTabs'
   nav.setAttribute('aria-label', 'Secciones de Crypto Radar')
@@ -184,9 +322,10 @@ function makeNav(main, latest, news) {
     button.dataset.tab = key
     button.textContent = label
     button.addEventListener('click', () => {
-      setTab(key, nav, main)
-      if (key === 'noticias') loadNews(news)
-      if (key === 'ahora') { refreshLatestCard(latest); stampLatestTime(latest) }
+      const active = setTab(key, nav, main)
+      if (active === 'noticias') loadNews(news)
+      if (active === 'indicadores') loadMarketOverview(market)
+      if (active === 'ahora') { refreshLatestCard(latest); stampLatestTime(latest) }
     })
     nav.appendChild(button)
   }
@@ -217,6 +356,28 @@ function makeNav(main, latest, news) {
   return nav
 }
 
+function setupTooltipFollow(main) {
+  main.addEventListener('pointermove', (event) => {
+    if (event.pointerType === 'touch') return
+    const canvas = event.target.closest?.('.candleCanvas')
+    if (!canvas) return
+    requestAnimationFrame(() => {
+      const tooltip = canvas.querySelector('.candleTooltip')
+      if (!tooltip) return
+      const rect = canvas.getBoundingClientRect()
+      const x = event.clientX - rect.left
+      const y = event.clientY - rect.top
+      const w = tooltip.offsetWidth || 180
+      const h = tooltip.offsetHeight || 120
+      const left = Math.max(8, Math.min(rect.width - w - 8, x - w / 2))
+      const top = y > rect.height * 0.55 ? Math.max(8, y - h - 18) : Math.min(rect.height - h - 8, y + 18)
+      tooltip.style.left = `${left}px`
+      tooltip.style.top = `${top}px`
+      tooltip.style.right = 'auto'
+    })
+  }, { passive: true })
+}
+
 export function enhanceCryptoRadar() {
   registerServiceWorker()
 
@@ -227,19 +388,32 @@ export function enhanceCryptoRadar() {
     main.dataset.enhanced = '1'
 
     const latest = makeLatestCard()
+    const market = makeMarketPanel()
     const news = makeNewsPanel()
     main.insertBefore(latest, header.nextSibling)
+    main.appendChild(market)
     main.appendChild(news)
     labelPanels(main)
 
-    const nav = makeNav(main, latest, news)
+    const nav = makeNav(main, latest, news, market)
     main.insertBefore(nav, latest)
     refreshLatestCard(latest)
     stampLatestTime(latest)
     news.querySelector('.newsRefresh').addEventListener('click', () => loadNews(news))
+    setupTooltipFollow(main)
 
     const requested = new URL(location.href).searchParams.get('tab') || 'ahora'
-    setTab(requested, nav, main)
+    const active = setTab(requested, nav, main)
+    if (active === 'noticias') loadNews(news)
+    if (active === 'indicadores') loadMarketOverview(market)
+
+    const liveRefresh = setInterval(() => {
+      if (document.hidden) return
+      const current = nav.querySelector('button[data-tab].active')?.dataset.tab
+      if (current === 'noticias') loadNews(news)
+      if (current === 'indicadores') loadMarketOverview(market)
+    }, 5 * 60_000)
+    window.addEventListener('pagehide', () => clearInterval(liveRefresh), { once: true })
 
     let scheduled = false
     const observer = new MutationObserver((records) => {
@@ -255,8 +429,8 @@ export function enhanceCryptoRadar() {
         stampLatestTime(latest)
         maybeNotifySignal()
         labelPanels(main)
-        const active = nav.querySelector('button[data-tab].active')?.dataset.tab || 'ahora'
-        applyPanelVisibility(main, active)
+        const current = nav.querySelector('button[data-tab].active')?.dataset.tab || 'ahora'
+        applyPanelVisibility(main, current)
       })
     })
     observer.observe(main, { childList: true, subtree: true, characterData: true })
