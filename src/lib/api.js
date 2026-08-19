@@ -1,10 +1,19 @@
 const COINGECKO = 'https://api.coingecko.com/api/v3'
 const BINANCE = 'https://data-api.binance.vision/api/v3'
 
-async function getJSON(url) {
-  const response = await fetch(url, { headers: { accept: 'application/json' } })
-  if (!response.ok) throw new Error(`Fuente de datos respondió ${response.status}`)
-  return response.json()
+async function getJSON(url, timeoutMs = 12000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(url, { headers: { accept: 'application/json' }, signal: controller.signal })
+    if (!response.ok) throw new Error(`Fuente de datos respondió ${response.status}`)
+    return response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('La fuente de datos tardó demasiado en responder')
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function mapKline(x, interval) {
@@ -73,6 +82,7 @@ async function fetchBtcDailyModelHistory() {
 export async function fetchCoinSnapshot(id) {
   if (id === 'bitcoin') {
     const h = await fetchBtcDailyModelHistory()
+    if (h.length < 2) throw new Error('No llegaron suficientes datos de BTC')
     const current = h[h.length - 1]
     const prev = h[h.length - 2]
     const p7 = h[h.length - 8]?.price ?? current.price
