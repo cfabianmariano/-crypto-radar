@@ -17,6 +17,10 @@ function getLatestSummary() {
   return { action, reason, price, change }
 }
 
+function setTextIfChanged(el, value) {
+  if (el && el.textContent !== value) el.textContent = value
+}
+
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return null
   try {
@@ -28,7 +32,7 @@ async function registerServiceWorker() {
 }
 
 async function showSignalNotification(summary) {
-  if (Notification.permission !== 'granted') return
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
   const reg = await navigator.serviceWorker.ready
   const title = summary.action === 'COMPRA'
     ? 'Crypto Radar · señal de COMPRA'
@@ -73,11 +77,15 @@ function makeLatestCard() {
 
 function refreshLatestCard(card) {
   const s = getLatestSummary()
-  card.querySelector('[data-latest-action]').textContent = s.action
-  card.querySelector('[data-latest-price]').textContent = `${s.price}${s.change ? ` · ${s.change}` : ''}`
-  card.querySelector('[data-latest-reason]').textContent = s.reason
-  card.querySelector('[data-latest-time]').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  card.dataset.action = s.action.toLowerCase()
+  setTextIfChanged(card.querySelector('[data-latest-action]'), s.action)
+  setTextIfChanged(card.querySelector('[data-latest-price]'), `${s.price}${s.change ? ` · ${s.change}` : ''}`)
+  setTextIfChanged(card.querySelector('[data-latest-reason]'), s.reason)
+  const action = s.action.toLowerCase()
+  if (card.dataset.action !== action) card.dataset.action = action
+}
+
+function stampLatestTime(card) {
+  setTextIfChanged(card.querySelector('[data-latest-time]'), new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
 }
 
 function makeNewsPanel() {
@@ -90,7 +98,7 @@ function makeNewsPanel() {
       <button type="button" class="newsRefresh">Actualizar</button>
     </div>
     <p class="newsIntro">Se priorizan noticias capaces de mover liquidez, tasas, dólar, regulación o criptomonedas. La lectura final debe combinar noticia + reacción del precio.</p>
-    <div class="newsStatus">Buscando lo último…</div>
+    <div class="newsStatus">Tocá Actualizar para buscar lo último.</div>
     <div class="newsList"></div>
   `
   return panel
@@ -111,8 +119,10 @@ async function loadNews(panel) {
   const list = panel.querySelector('.newsList')
   status.textContent = 'Buscando lo último…'
   list.innerHTML = ''
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 12000)
   try {
-    const response = await fetch('/api/news', { headers: { accept: 'application/json' } })
+    const response = await fetch('/api/news', { headers: { accept: 'application/json' }, signal: controller.signal })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     const articles = Array.isArray(data.articles) ? data.articles.slice(0, 12) : []
@@ -123,20 +133,16 @@ async function loadNews(panel) {
       item.className = 'newsItem'
       const category = classifyHeadline(article.title)
       const time = article.seendate ? new Date(article.seendate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
-      item.innerHTML = `
-        <div class="newsMeta"><span>${category}</span><small>${time}</small></div>
-        <h3></h3>
-        <p></p>
-        <a target="_blank" rel="noreferrer">Abrir fuente</a>
-      `
+      item.innerHTML = `<div class="newsMeta"><span>${category}</span><small>${time}</small></div><h3></h3><p></p><a target="_blank" rel="noreferrer">Abrir fuente</a>`
       item.querySelector('h3').textContent = article.title || 'Sin título'
       item.querySelector('p').textContent = article.domain ? `Fuente: ${article.domain}` : 'Fuente externa'
-      const link = item.querySelector('a')
-      link.href = article.url || '#'
+      item.querySelector('a').href = article.url || '#'
       list.appendChild(item)
     }
   } catch (error) {
-    status.textContent = `No pude cargar noticias: ${error.message}`
+    status.textContent = error.name === 'AbortError' ? 'La fuente de noticias tardó demasiado. Probá Actualizar.' : `No pude cargar noticias: ${error.message}`
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -144,22 +150,24 @@ function labelPanels(main) {
   const directSections = [...main.children].filter((x) => x.tagName === 'SECTION')
   for (const section of directSections) {
     if (section.classList.contains('cryptoRadarInjected')) continue
-    if (section.classList.contains('hero') || section.classList.contains('decisionCard')) {
-      section.dataset.cryptoPanel = 'ahora'
-    } else if (section.classList.contains('chartCard')) {
-      section.dataset.cryptoPanel = 'grafico'
-    } else {
-      section.dataset.cryptoPanel = 'indicadores'
-    }
+    let panel = 'indicadores'
+    if (section.classList.contains('hero') || section.classList.contains('decisionCard')) panel = 'ahora'
+    else if (section.classList.contains('chartCard')) panel = 'grafico'
+    if (section.dataset.cryptoPanel !== panel) section.dataset.cryptoPanel = panel
   }
+}
+
+function applyPanelVisibility(main, active) {
+  main.querySelectorAll('[data-crypto-panel]').forEach((panel) => {
+    const shouldHide = panel.dataset.cryptoPanel !== active
+    if (panel.hidden !== shouldHide) panel.hidden = shouldHide
+  })
 }
 
 function setTab(tab, nav, main) {
   const target = TAB_LABELS[tab] ? tab : 'ahora'
   nav.querySelectorAll('button[data-tab]').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === target))
-  main.querySelectorAll('[data-crypto-panel]').forEach((panel) => {
-    panel.hidden = panel.dataset.cryptoPanel !== target
-  })
+  applyPanelVisibility(main, target)
   const url = new URL(location.href)
   url.searchParams.set('tab', target)
   history.replaceState(null, '', url)
@@ -178,7 +186,7 @@ function makeNav(main, latest, news) {
     button.addEventListener('click', () => {
       setTab(key, nav, main)
       if (key === 'noticias') loadNews(news)
-      if (key === 'ahora') refreshLatestCard(latest)
+      if (key === 'ahora') { refreshLatestCard(latest); stampLatestTime(latest) }
     })
     nav.appendChild(button)
   }
@@ -186,7 +194,7 @@ function makeNav(main, latest, news) {
   const alerts = document.createElement('button')
   alerts.type = 'button'
   alerts.className = 'alertsButton'
-  alerts.textContent = Notification.permission === 'granted' ? '🔔 Alertas ON' : '🔔 Alertas'
+  alerts.textContent = ('Notification' in window && Notification.permission === 'granted') ? '🔔 Alertas ON' : '🔔 Alertas'
   alerts.addEventListener('click', async () => {
     if (!('Notification' in window)) {
       alerts.textContent = 'Alertas no disponibles'
@@ -223,23 +231,33 @@ export function enhanceCryptoRadar() {
     main.insertBefore(latest, header.nextSibling)
     main.appendChild(news)
     labelPanels(main)
-    latest.dataset.cryptoPanel = 'ahora'
-    news.dataset.cryptoPanel = 'noticias'
 
     const nav = makeNav(main, latest, news)
     main.insertBefore(nav, latest)
     refreshLatestCard(latest)
+    stampLatestTime(latest)
     news.querySelector('.newsRefresh').addEventListener('click', () => loadNews(news))
 
     const requested = new URL(location.href).searchParams.get('tab') || 'ahora'
     setTab(requested, nav, main)
 
-    const observer = new MutationObserver(() => {
-      refreshLatestCard(latest)
-      maybeNotifySignal()
-      labelPanels(main)
-      const active = nav.querySelector('button[data-tab].active')?.dataset.tab || 'ahora'
-      main.querySelectorAll('[data-crypto-panel]').forEach((panel) => { panel.hidden = panel.dataset.cryptoPanel !== active })
+    let scheduled = false
+    const observer = new MutationObserver((records) => {
+      const relevant = records.some((record) => {
+        const el = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement
+        return el && !el.closest('.cryptoRadarInjected, .cryptoTabs')
+      })
+      if (!relevant || scheduled) return
+      scheduled = true
+      requestAnimationFrame(() => {
+        scheduled = false
+        refreshLatestCard(latest)
+        stampLatestTime(latest)
+        maybeNotifySignal()
+        labelPanels(main)
+        const active = nav.querySelector('button[data-tab].active')?.dataset.tab || 'ahora'
+        applyPanelVisibility(main, active)
+      })
     })
     observer.observe(main, { childList: true, subtree: true, characterData: true })
     maybeNotifySignal()
