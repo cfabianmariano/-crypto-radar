@@ -1,0 +1,37 @@
+/* Structural fix: only the Radar wrapper becomes transparent to the desktop grid.
+   Real sections (Chart / Indicators / News) must remain containers. */
+@media (min-width:1024px){
+  .v2Shell > div.v2MobilePane{display:contents!important}
+  .v2Shell > section.v2MobilePane{display:block!important}
+  .v2Shell > section.v2Indicators.v2MobilePane{display:grid!important}
+
+  .v2ChartSection{grid-column:1/2!important;grid-row:3/6!important;width:100%!important;min-width:0!important;overflow:hidden!important}
+  .v2ChartSection > *{min-width:0!important;max-width:100%!important}
+  .v2ChartBody{display:block!important;width:100%!important;height:520px!important;overflow:hidden!important}
+  .v2ChartBody > div{display:block!important;width:100%!important;max-width:none!important}
+  .v2ChartBody .candleCanvas{display:block!important;width:100%!important;max-width:none!important;margin:0!important}
+  .v2ChartBody .candleCanvas svg{display:block!important;width:100%!important;height:auto!important;max-width:none!important}
+  .v2ChartBody .chartToolbar,.v2ChartBody .trendLegend,.v2ChartBody .gestureHint,.v2ChartBody .analysisToolsBar,.v2ChartBody .analysisReadout{width:100%!important;max-width:100%!important}
+
+  .v2DecisionGrid{grid-column:2/3!important;grid-row:2/4!important;width:100%!important}
+  .v2Indicators{grid-column:2/3!important;grid-row:4/6!important;width:100%!important;align-self:start!important}
+  .v2News{grid-column:1/-1!important;grid-row:6!important;width:100%!important}
+
+  /* Make the desktop composition feel like the approved mockup. */
+  .v2Shell{grid-template-columns:minmax(0,2.12fr) minmax(360px,.88fr)!important;gap:12px 14px!important}
+  .v2Hero{min-height:180px!important}
+  .v2Why,.v2Triggers{min-height:0!important}
+  .v2ChartSection{min-height:650px!important}
+  .v2Indicators{gap:10px!important}
+  .v2NewsList{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+}
+
+@media (max-width:1023px){
+  /* Mobile is truly tabbed: wrappers and sections only appear when selected. */
+  .v2MobilePane{display:none!important}
+  .v2MobilePane.show{display:block!important}
+  .v2MobilePane.show.v2Indicators{display:grid!important}
+  .v2MobilePane.show > .v2DecisionGrid{display:grid!important}
+  .v2ChartSection,.v2Indicators,.v2News{width:100%!important;min-width:0!important}
+  .v2ChartBody,.v2ChartBody > div,.v2ChartBody .candleCanvas{width:100%!important;max-width:100%!important}
+}
