@@ -1,0 +1,33 @@
+name: Model Lab Iterations 06-08
+
+on:
+  push:
+    paths:
+      - 'model-lab/iteration06_08.py'
+      - '.github/workflows/model-lab-iteration06-08.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run iterations 06-08
+        run: python model-lab/iteration06_08.py
+      - name: Save results
+        run: |
+          git config user.name "crypto-radar-model-lab"
+          git config user.email "actions@users.noreply.github.com"
+          git add model-lab/results/iteration06.md model-lab/results/iteration07.md model-lab/results/iteration08.md
+          if git diff --cached --quiet; then
+            echo "No result changes"
+          else
+            git commit -m "Model lab: save iterations 06-08 results"
+            git push
+          fi
