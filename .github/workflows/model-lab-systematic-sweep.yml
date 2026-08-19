@@ -1,0 +1,29 @@
+name: Model Lab Systematic Sweep
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'model-lab/systematic_sweep.py'
+      - '.github/workflows/model-lab-systematic-sweep.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run systematic sweep
+        run: python model-lab/systematic_sweep.py
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add model-lab/results/systematic_sweep.md
+          git diff --cached --quiet || git commit -m "Model lab: save systematic sweep results"
+          git push
