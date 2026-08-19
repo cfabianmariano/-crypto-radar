@@ -1,4 +1,5 @@
 const QUERY = 'bitcoin OR cryptocurrency OR "Federal Reserve" OR Treasury OR inflation OR yields OR dollar OR SEC OR Ripple OR XRP'
+const FIVE_HOURS = 5 * 60 * 60 * 1000
 
 function stripHtml(value = '') {
   return value
@@ -17,9 +18,23 @@ function tag(block, name) {
   return stripHtml(match?.[1] || '')
 }
 
+function normalizeDate(value) {
+  const t = value ? new Date(value).getTime() : NaN
+  return Number.isFinite(t) ? new Date(t).toISOString() : null
+}
+
+function recentOnly(articles) {
+  const cutoff = Date.now() - FIVE_HOURS
+  return articles
+    .map((a) => ({ ...a, seendate: normalizeDate(a.seendate) }))
+    .filter((a) => !a.seendate || new Date(a.seendate).getTime() >= cutoff)
+    .sort((a, b) => (new Date(b.seendate || 0).getTime() - new Date(a.seendate || 0).getTime()))
+    .slice(0, 20)
+}
+
 async function fetchGoogleNews() {
   const params = new URLSearchParams({
-    q: QUERY,
+    q: `(${QUERY}) when:5h`,
     hl: 'en-US',
     gl: 'US',
     ceid: 'US:en',
@@ -45,24 +60,24 @@ async function fetchGoogleNews() {
       title,
       url,
       domain: source || 'Google News',
-      seendate: pubDate ? new Date(pubDate).toISOString() : null,
+      seendate: pubDate,
       language: 'English',
       sourcecountry: 'US',
     })
-    if (articles.length >= 20) break
   }
-  if (!articles.length) throw new Error('Google News sin resultados')
-  return { articles, source: 'Google News' }
+  const recent = recentOnly(articles)
+  if (!recent.length) throw new Error('Google News sin resultados recientes')
+  return { articles: recent, source: 'Google News' }
 }
 
 async function fetchGdelt() {
   const params = new URLSearchParams({
     query: `(${QUERY})`,
     mode: 'ArtList',
-    maxrecords: '30',
+    maxrecords: '40',
     format: 'json',
-    sort: 'HybridRel',
-    timespan: '1d',
+    sort: 'DateDesc',
+    timespan: '5h',
   })
   const response = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?${params}`, {
     headers: { 'user-agent': 'crypto-radar/1.0' },
@@ -78,7 +93,6 @@ async function fetchGdelt() {
       seen.add(key)
       return true
     })
-    .slice(0, 20)
     .map((a) => ({
       title: a.title,
       url: a.url,
@@ -87,8 +101,9 @@ async function fetchGdelt() {
       language: a.language,
       sourcecountry: a.sourcecountry,
     }))
-  if (!articles.length) throw new Error('GDELT sin resultados')
-  return { articles, source: 'GDELT' }
+  const recent = recentOnly(articles)
+  if (!recent.length) throw new Error('GDELT sin resultados recientes')
+  return { articles: recent, source: 'GDELT' }
 }
 
 export async function onRequestGet() {
@@ -99,8 +114,9 @@ export async function onRequestGet() {
       return Response.json({
         ...result,
         generatedAt: new Date().toISOString(),
+        windowHours: 5,
       }, {
-        headers: { 'cache-control': 'public, max-age=300' },
+        headers: { 'cache-control': 'public, max-age=180' },
       })
     } catch (error) {
       failures.push(error.message || 'unknown_error')
@@ -112,6 +128,7 @@ export async function onRequestGet() {
     error: 'news_sources_unavailable',
     details: failures,
     generatedAt: new Date().toISOString(),
+    windowHours: 5,
   }, {
     status: 200,
     headers: { 'cache-control': 'no-store' },
