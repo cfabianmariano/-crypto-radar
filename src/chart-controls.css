@@ -9,13 +9,12 @@
 .chartError { margin-top:12px; border:1px solid #713a45; background:#2a1218; color:#fecdd3; padding:10px 12px; border-radius:10px; font-size:12px; }
 .simpleChartCard { padding-bottom:18px; }
 .candleWrap { height:auto; min-height:520px; margin-top:10px; }
-.simpleCandleBlock { margin-top:8px; }
 .chartToolbar { display:flex; justify-content:space-between; gap:14px; align-items:center; margin-bottom:6px; }
 .simpleLegend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; color:#b2bfd0; font-size:12px; }
 .simpleLegend span { display:flex; align-items:center; gap:7px; }
-.legendBadge { display:inline-grid; place-items:center; width:24px; height:24px; border-radius:50%; color:white; font-size:11px; line-height:1; border:2px solid white; }
-.buyBadge { background:#16a34a; }
-.sellBadge { background:#dc2626; }
+.arrowLegend { display:inline-grid; place-items:center; width:25px; height:25px; border-radius:8px; font-size:20px; line-height:1; border:1px solid rgba(255,255,255,.45); background:#0b1625; }
+.buyArrowLegend { color:#22c55e; }
+.sellArrowLegend { color:#ef4444; }
 .chartActions { display:flex; gap:8px; align-items:center; }
 .toolBtn { display:flex; align-items:center; gap:6px; border:1px solid #2a3d57; background:#0c1727; color:#aebfd2; border-radius:9px; padding:8px 10px; font-size:11px; cursor:pointer; }
 .toolBtn.active { border-color:#3b82f6; background:#102540; color:#dbeafe; }
@@ -25,10 +24,10 @@
 .trendLine.ma50 { background:#f59e0b; }
 .trendLine.ma200 { background:#38bdf8; }
 .gestureHint { color:#73859d; font-size:10px; margin:4px 0 6px; }
-.candleCanvas { position:relative; width:100%; min-height:500px; user-select:none; }
-.interactiveChart { touch-action:none; cursor:grab; }
+.candleCanvas { position:relative; width:100%; min-height:500px; user-select:none; -webkit-user-select:none; overscroll-behavior:contain; }
+.interactiveChart { touch-action:none; cursor:grab; -webkit-touch-callout:none; }
 .interactiveChart:active { cursor:grabbing; }
-.candleCanvas svg { display:block; width:100%; height:auto; min-height:490px; overflow:visible; }
+.candleCanvas svg { display:block; width:100%; height:auto; min-height:490px; overflow:visible; pointer-events:none; }
 .candleTooltip { position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:3px; min-width:180px; padding:10px 12px; border:1px solid #2a3d57; border-radius:10px; background:rgba(8,18,31,.96); color:#cbd5e1; font-size:11px; pointer-events:none; }
 .candleTooltip strong { color:#f8fafc; font-size:12px; margin-bottom:3px; }
 .resetZoomBtn { display:block; margin:6px auto 0; border:1px solid #263850; background:#0d1b2d; color:#b8c6d8; border-radius:9px; padding:7px 11px; font-size:11px; cursor:pointer; }
@@ -51,17 +50,15 @@
 .meterNeedle.compra { left:82%; }
 .meterNeedle.venta { left:18%; }
 .meterNeedle.esperar { left:50%; }
-.ringGrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-.ringStat { display:flex; align-items:center; gap:12px; background:#091524; border:1px solid #203149; border-radius:16px; padding:14px; min-width:0; }
-.ring { --ring:0deg; width:90px; min-width:90px; aspect-ratio:1; border-radius:50%; display:grid; place-items:center; position:relative; background:conic-gradient(from -90deg,#22c55e var(--ring),#172335 0); }
-.ring.sell { background:conic-gradient(from -90deg,#ef4444 var(--ring),#172335 0); }
-.ring::after { content:""; position:absolute; inset:9px; border-radius:50%; background:#091321; border:1px solid #203149; }
-.ring > div { position:relative; z-index:1; text-align:center; }
-.ring strong { display:block; font-size:22px; line-height:1; }
-.ring span { display:block; color:#71829a; font-size:8px; margin-top:4px; text-transform:uppercase; }
-.ringText { display:flex; flex-direction:column; min-width:0; }
-.ringText b { font-size:14px; }
-.ringText small { color:#74859b; font-size:9px; margin-top:4px; }
+
+.accuracyGrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.accuracyStat { min-width:0; padding:11px 13px; border-radius:14px; background:rgba(6,18,31,.62); border:1px solid rgba(255,255,255,.10); }
+.accuracyStat span { display:block; color:#c3d0e2; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.10em; }
+.accuracyStat strong { display:block; font-size:26px; line-height:1; margin:5px 0 4px; }
+.accuracyStat small { color:#7f91aa; font-size:9px; }
+.accuracyStat.buy strong { color:#4ade80; }
+.accuracyStat.sell strong { color:#fb7185; }
+
 .restoredScores { margin-top:18px; }
 .compactSummary { display:flex; flex-direction:column; justify-content:center; }
 .expandedStats { grid-template-columns:repeat(2,1fr); margin-top:4px; }
@@ -69,7 +66,6 @@
 
 @media (max-width: 900px) {
   .visualDecision { grid-template-columns:1fr; }
-  .ringGrid { grid-template-columns:1fr 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -90,18 +86,16 @@
   .chartActions { width:100%; }
   .toolBtn { flex:1; justify-content:center; }
   .simpleLegend { gap:12px; font-size:11px; }
-  .legendBadge { width:22px; height:22px; }
   .gestureHint { font-size:9px; }
   .candleWrap { min-height:460px; }
   .candleCanvas { min-height:440px; }
   .candleCanvas svg { min-height:430px; }
   .candleTooltip { top:8px; right:8px; min-width:155px; padding:8px 10px; font-size:10px; }
   .autoLoading { padding:0; }
-  .ringGrid { grid-template-columns:1fr 1fr; gap:8px; }
-  .ringStat { flex-direction:column; text-align:center; padding:10px 6px; gap:7px; }
-  .ring { width:76px; min-width:76px; }
-  .ring strong { font-size:18px; }
-  .ringText b { font-size:12px; }
+  .accuracyGrid { gap:8px; }
+  .accuracyStat { padding:9px 10px; }
+  .accuracyStat strong { font-size:22px; }
+  .accuracyStat small { font-size:8px; }
   .expandedStats { grid-template-columns:1fr 1fr; }
   .chartExpanded { padding:8px; }
 }
